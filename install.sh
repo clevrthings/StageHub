@@ -38,6 +38,10 @@ have_cmd() {
   command -v "$1" >/dev/null 2>&1
 }
 
+ensure_git_safe_directory() {
+  git config --global --add safe.directory "${INSTALL_DIR}" >/dev/null 2>&1 || true
+}
+
 prompt_read() {
   local prompt="$1"
   local input_value=""
@@ -88,6 +92,7 @@ clone_repo() {
 
 update_repo() {
   log "Updating existing repository in ${INSTALL_DIR}"
+  ensure_git_safe_directory
   git -C "${INSTALL_DIR}" fetch origin "${BRANCH}"
   git -C "${INSTALL_DIR}" checkout -B "${BRANCH}" "origin/${BRANCH}"
   git -C "${INSTALL_DIR}" reset --hard "origin/${BRANCH}"
@@ -396,6 +401,8 @@ enable_and_start_service() {
 }
 
 main() {
+  # Avoid getcwd warnings if caller directory was deleted/unmounted.
+  cd /
   require_root
   log "Installer version: ${INSTALLER_VERSION}"
   have_cmd systemctl || die "systemctl not found. This installer requires systemd."
