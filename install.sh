@@ -17,7 +17,7 @@ CLI_BIN="/usr/local/bin/stagechat"
 DEFAULT_SERVICE_USER="stagechat"
 INTERACTIVE_INPUT="/dev/tty"
 INSTALL_MODE="new"
-INSTALLER_VERSION="2026-02-22-4"
+INSTALLER_VERSION="2026-02-22-5"
 
 
 log() {
@@ -37,6 +37,36 @@ require_root() {
 
 have_cmd() {
   command -v "$1" >/dev/null 2>&1
+}
+
+refresh_installer_if_needed() {
+  if [ "${STAGECHAT_INSTALLER_REFRESHED:-0}" = "1" ]; then
+    return
+  fi
+  if ! have_cmd curl; then
+    return
+  fi
+  local raw_url="https://raw.githubusercontent.com/${REPO_OWNER}/${REPO_NAME}/${BRANCH}/install.sh"
+  local ts
+  ts="$(date +%s)"
+  local tmp_file
+  tmp_file="$(mktemp)"
+  log "Refreshing installer from GitHub (cache-bust: ${ts})..."
+  if ! curl -fsSL "${raw_url}?ts=${ts}" -o "${tmp_file}"; then
+    rm -f "${tmp_file}" || true
+    die "Could not refresh installer from GitHub."
+  fi
+  chmod 700 "${tmp_file}"
+  export STAGECHAT_INSTALLER_TMP="${tmp_file}"
+  export STAGECHAT_INSTALLER_REFRESHED=1
+  exec bash "${tmp_file}" "$@"
+}
+
+cleanup_installer_cache() {
+  if [ -n "${STAGECHAT_INSTALLER_TMP:-}" ] && [ -f "${STAGECHAT_INSTALLER_TMP}" ]; then
+    rm -f "${STAGECHAT_INSTALLER_TMP}" || true
+  fi
+  hash -r || true
 }
 
 ensure_git_safe_directory() {
@@ -404,6 +434,7 @@ enable_and_start_service() {
 
 main() {
   require_root
+  refresh_installer_if_needed "$@"
   log "Installer version: ${INSTALLER_VERSION}"
   have_cmd systemctl || die "systemctl not found. This installer requires systemd."
   if [ ! -r "${INTERACTIVE_INPUT}" ]; then
@@ -511,6 +542,8 @@ PY
     log "  ${http_host_local_url}  (auto-redirect to HTTPS)"
     log "  ${https_host_local_url}"
   fi
+  cleanup_installer_cache
+  log "Installer version used: ${INSTALLER_VERSION}"
 }
 
 main "$@"
