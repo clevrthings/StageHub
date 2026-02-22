@@ -1,0 +1,4 @@
+flask==3.0.3
+flask-socketio==5.3.6
+simple-websocket==1.0.0
+cryptography>=42.0.0

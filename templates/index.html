@@ -1,0 +1,3186 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>StageChat</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="/static/js/socket.io-4.7.5.min.js"></script>
+<style>
+  :root {
+    --bg-primary:    #0f0f14;
+    --bg-sidebar:    #13131a;
+    --bg-panel:      #1a1a24;
+    --accent:        #f5a623;
+    --text-primary:  #e8e8f0;
+    --text-secondary:#7a7a9a;
+    --text-system:   #5a5a7a;
+    --border:        #1e1e2e;
+    --online-dot:    #4caf7a;
+    --danger:        #e05c5c;
+  }
+
+  body.light-theme {
+    --bg-primary:    #f5f5f7;
+    --bg-sidebar:    #e8e8ec;
+    --bg-panel:      #ffffff;
+    --text-primary:  #1a1a2e;
+    --text-secondary:#555570;
+    --text-system:   #8a8aa0;
+    --border:        #d0d0dc;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html, body { height: 100%; }
+
+  body {
+    font-family: 'Inter', sans-serif;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    height: 100vh;
+    height: 100dvh;
+    min-height: 0;
+    display: flex;
+    overflow: hidden;
+  }
+
+  /* ── Auth overlay ── */
+  #overlay {
+    position: fixed; inset: 0;
+    background: rgba(0,0,0,.7);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 100; backdrop-filter: blur(6px);
+  }
+  #overlay.hidden { display: none; }
+  .overlay-card {
+    background: var(--bg-panel); border: 1px solid var(--border);
+    border-radius: 12px; padding: 32px 36px 36px; width: 360px;
+  }
+  .overlay-card .logo {
+    font-size: 1.5rem; font-weight: 600; color: var(--accent);
+    margin-bottom: 20px; text-align: center;
+  }
+  .auth-tabs { display: flex; margin-bottom: 22px; border-bottom: 1px solid var(--border); }
+  .tab-btn {
+    flex: 1; padding: 8px; background: none; border: none;
+    border-bottom: 2px solid transparent; margin-bottom: -1px;
+    color: var(--text-secondary); font-family: inherit; font-size: .875rem;
+    font-weight: 500; cursor: pointer; transition: color .15s, border-color .15s;
+  }
+  .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+  .overlay-card input {
+    width: 100%; padding: 10px 14px; background: var(--bg-primary);
+    border: 1px solid var(--border); border-radius: 8px;
+    color: var(--text-primary); font-size: 1rem; font-family: inherit;
+    outline: none; margin-bottom: 10px; transition: border-color .2s;
+  }
+  .overlay-card input:focus { border-color: var(--accent); }
+  .auth-error { font-size: .8rem; color: var(--danger); margin-bottom: 10px; min-height: 1em; }
+  .auth-error.hidden { visibility: hidden; }
+  .overlay-card .submit-btn {
+    width: 100%; padding: 11px; background: var(--accent); color: #0f0f14;
+    font-weight: 600; font-size: .95rem; font-family: inherit; border: none;
+    border-radius: 8px; cursor: pointer; transition: opacity .15s; margin-top: 2px;
+  }
+  .overlay-card .submit-btn:hover { opacity: .88; }
+
+  /* ── Toasts ── */
+  #toast-stack {
+    position: fixed; right: 14px; bottom: 14px; z-index: 500;
+    display: flex; flex-direction: column; gap: 8px; pointer-events: none;
+  }
+  .toast {
+    background: var(--bg-panel); border: 1px solid var(--border); color: var(--text-primary);
+    border-radius: 8px; padding: 10px 12px; font-size: .82rem; min-width: 220px;
+    box-shadow: 0 6px 18px rgba(0,0,0,.18); opacity: 0; transform: translateY(6px);
+    transition: opacity .2s ease, transform .2s ease;
+  }
+  .toast.show { opacity: 1; transform: translateY(0); }
+  .toast.success { border-color: rgba(76,175,122,.45); }
+  .toast.error { border-color: rgba(224,92,92,.45); }
+
+  /* ── Confirm modal ── */
+  #confirm-modal {
+    position: fixed; inset: 0; z-index: 300;
+    display: flex; align-items: center; justify-content: center;
+  }
+  #confirm-modal.hidden { display: none; }
+  .confirm-backdrop { position: absolute; inset: 0; background: rgba(0,0,0,.6); backdrop-filter: blur(4px); }
+  .confirm-card {
+    position: relative; background: var(--bg-panel); border: 1px solid var(--border);
+    border-radius: 10px; padding: 24px 28px; width: 300px; text-align: center; z-index: 1;
+  }
+  .confirm-card p { color: var(--text-primary); font-size: .9rem; margin-bottom: 20px; line-height: 1.4; }
+  .confirm-btns { display: flex; gap: 10px; }
+  .confirm-btns button {
+    flex: 1; padding: 9px 14px; border: 1px solid var(--border); border-radius: 7px;
+    font-family: inherit; font-size: .875rem; font-weight: 500; cursor: pointer;
+    transition: opacity .15s; background: var(--bg-primary); color: var(--text-secondary);
+  }
+  .confirm-btns button:hover { opacity: .8; }
+  .confirm-btns button.btn-danger { background: var(--danger); color: #fff; border-color: var(--danger); }
+
+  /* ── Admin modal ── */
+  #admin-modal {
+    position: fixed; inset: 0; z-index: 150;
+    display: flex; align-items: center; justify-content: center;
+  }
+  #admin-modal.hidden { display: none; }
+  .admin-backdrop { position: absolute; inset: 0; background: rgba(0,0,0,.65); backdrop-filter: blur(4px); }
+  .admin-container {
+    position: relative; display: flex;
+    width: 860px; max-width: calc(100vw - 32px);
+    height: 580px; max-height: calc(100vh - 48px);
+    background: var(--bg-panel); border: 1px solid var(--border);
+    border-radius: 12px; overflow: hidden; z-index: 1;
+  }
+  .admin-sidebar {
+    width: 180px; min-width: 180px; background: var(--bg-sidebar);
+    border-right: 1px solid var(--border);
+    display: flex; flex-direction: column; padding: 16px 0;
+  }
+  .admin-sidebar-title {
+    font-size: .7rem; font-weight: 600; text-transform: uppercase;
+    letter-spacing: .08em; color: var(--text-secondary); padding: 0 16px 12px;
+  }
+  .admin-tab-btn {
+    display: block; width: 100%; text-align: left; padding: 10px 16px;
+    background: none; border: none; border-left: 3px solid transparent;
+    color: var(--text-secondary); font-family: inherit; font-size: .875rem;
+    font-weight: 500; cursor: pointer;
+    transition: background .12s, color .12s, border-color .12s;
+  }
+  .admin-tab-btn:hover { background: rgba(255,255,255,.04); color: var(--text-primary); }
+  .admin-tab-btn.active { background: rgba(245,166,35,.08); color: var(--accent); border-left-color: var(--accent); }
+  .admin-close {
+    margin: auto 12px 12px; padding: 8px; background: none;
+    border: 1px solid var(--border); border-radius: 7px; color: var(--text-secondary);
+    font-family: inherit; font-size: .8rem; cursor: pointer; transition: background .12s, color .12s;
+  }
+  .admin-close:hover { background: var(--bg-panel); color: var(--text-primary); }
+  .admin-content { flex: 1; overflow-y: auto; padding: 24px 28px; }
+  .admin-content h2 {
+    font-size: 1rem; font-weight: 600; color: var(--text-primary);
+    margin-bottom: 20px; padding-bottom: 12px; border-bottom: 1px solid var(--border);
+  }
+  .admin-content h2:not(:first-child) { margin-top: 24px; }
+  .admin-row { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
+  .admin-label { font-size: .82rem; color: var(--text-secondary); min-width: 180px; flex-shrink: 0; }
+  .admin-input {
+    flex: 1; min-width: 120px; padding: 7px 10px; background: var(--bg-primary);
+    border: 1px solid var(--border); border-radius: 7px; color: var(--text-primary);
+    font-size: .875rem; font-family: inherit; outline: none; transition: border-color .2s;
+  }
+  .admin-input:focus { border-color: var(--accent); }
+  .admin-info { font-size: .82rem; color: var(--text-secondary); margin-bottom: 16px; line-height: 1.7; }
+  .admin-info span { color: var(--text-primary); font-weight: 500; }
+  .admin-btn {
+    padding: 7px 14px; background: var(--accent); color: #0f0f14; font-weight: 600;
+    font-size: .82rem; font-family: inherit; border: none; border-radius: 7px;
+    cursor: pointer; transition: opacity .15s; white-space: nowrap; flex-shrink: 0;
+  }
+  .admin-btn:hover { opacity: .88; }
+  .admin-btn.secondary {
+    background: var(--bg-primary); color: var(--text-secondary);
+    border: 1px solid var(--border);
+  }
+  .admin-btn.secondary:hover { color: var(--text-primary); border-color: var(--text-secondary); }
+  .admin-btn.danger { background: var(--danger); color: #fff; }
+  .admin-btn.danger:hover { opacity: .85; }
+  .admin-btn.sm { padding: 5px 10px; font-size: .78rem; }
+
+  /* Toggle (admin + user settings) */
+  .toggle-wrap {
+    position: relative; width: 38px; height: 20px; flex-shrink: 0; display: inline-block;
+  }
+  .toggle-wrap input { opacity: 0; width: 0; height: 0; position: absolute; }
+  .toggle-track {
+    position: absolute; inset: 0; border-radius: 20px;
+    background: var(--border); cursor: pointer; transition: background .2s;
+  }
+  .toggle-wrap input:checked + .toggle-track { background: var(--accent); }
+  .toggle-track::after {
+    content: ''; position: absolute; left: 2px; top: 2px;
+    width: 16px; height: 16px; background: white; border-radius: 50%; transition: transform .2s;
+  }
+  .toggle-wrap input:checked + .toggle-track::after { transform: translateX(18px); }
+
+  /* Project list */
+  .project-item {
+    display: flex; align-items: center; gap: 8px; padding: 10px 14px;
+    background: var(--bg-primary); border: 1px solid var(--border);
+    border-radius: 8px; margin-bottom: 8px; flex-wrap: wrap;
+  }
+  .project-item.active-project { border-color: var(--accent); }
+  .project-name { flex: 1; font-size: .875rem; color: var(--text-primary); font-weight: 500; }
+  .project-badge {
+    font-size: .7rem; background: rgba(245,166,35,.15); color: var(--accent);
+    border-radius: 4px; padding: 2px 6px; font-weight: 600;
+  }
+  .project-size { font-size: .75rem; color: var(--text-system); }
+  .project-actions { display: flex; gap: 4px; }
+
+  /* User list in admin */
+  .admin-user-item {
+    display: flex; align-items: center; gap: 8px; padding: 9px 14px;
+    background: var(--bg-primary); border: 1px solid var(--border);
+    border-radius: 8px; margin-bottom: 6px;
+  }
+  .admin-user-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-system); flex-shrink: 0; }
+  .admin-user-dot.online { background: var(--online-dot); }
+  .admin-user-name { flex: 1; font-size: .875rem; color: var(--text-primary); font-weight: 500; }
+  .admin-badge {
+    font-size: .7rem; background: rgba(245,166,35,.15); color: var(--accent);
+    border-radius: 4px; padding: 2px 6px; font-weight: 600;
+  }
+
+  /* Danger zone */
+  .danger-item {
+    display: flex; align-items: flex-start; gap: 16px; padding: 16px;
+    background: rgba(224,92,92,.06); border: 1px solid rgba(224,92,92,.2);
+    border-radius: 8px; margin-bottom: 12px;
+  }
+  .danger-item-text { flex: 1; }
+  .danger-item-text h3 { font-size: .875rem; font-weight: 600; color: var(--text-primary); margin-bottom: 4px; }
+  .danger-item-text p { font-size: .8rem; color: var(--text-secondary); line-height: 1.4; }
+
+  /* ── User settings modal ── */
+  #user-settings-modal {
+    position: fixed; inset: 0; z-index: 200;
+    display: flex; align-items: center; justify-content: center;
+  }
+  #user-settings-modal.hidden { display: none; }
+  .usettings-card {
+    position: relative; background: var(--bg-panel); border: 1px solid var(--border);
+    border-radius: 10px; width: 400px; max-height: 580px; max-width: calc(100vw - 32px);
+    display: flex; flex-direction: column; z-index: 1; overflow: hidden;
+  }
+  .usettings-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 16px 18px 12px; border-bottom: 1px solid var(--border);
+    font-weight: 600; font-size: .9rem; color: var(--text-primary); flex-shrink: 0;
+  }
+  .usettings-header button {
+    background: none; border: none; color: var(--text-secondary);
+    font-size: 1.2rem; cursor: pointer; line-height: 1; padding: 2px 4px;
+  }
+  .usettings-header button:hover { color: var(--text-primary); }
+  .usettings-body { overflow-y: auto; padding: 16px 18px 20px; }
+  .usettings-section {
+    font-size: .7rem; font-weight: 600; text-transform: uppercase;
+    letter-spacing: .08em; color: var(--text-secondary); margin: 16px 0 10px;
+  }
+  .usettings-section:first-child { margin-top: 0; }
+  .usettings-row {
+    display: flex; align-items: center; gap: 10px; margin-bottom: 10px;
+  }
+  .usettings-row > label:not(.toggle-wrap) { flex: 1; font-size: .875rem; color: var(--text-primary); }
+  .usettings-row .toggle-wrap { flex: 0 0 auto; margin-left: auto; }
+  .usettings-select {
+    padding: 6px 10px; background: var(--bg-primary); border: 1px solid var(--border);
+    border-radius: 7px; color: var(--text-primary); font-size: .85rem; font-family: inherit;
+    outline: none; transition: border-color .2s; min-width: 140px;
+  }
+  .usettings-select:focus { border-color: var(--accent); }
+  .usettings-btn {
+    padding: 6px 14px; background: var(--bg-primary); border: 1px solid var(--border);
+    border-radius: 7px; color: var(--text-secondary); font-family: inherit;
+    font-size: .82rem; font-weight: 500; cursor: pointer; transition: border-color .15s, color .15s;
+  }
+  .usettings-btn:hover { border-color: var(--accent); color: var(--text-primary); }
+  .usettings-divider { border: none; border-top: 1px solid var(--border); margin: 14px 0; }
+  .usettings-note { font-size: .78rem; color: var(--text-system); margin-bottom: 10px; line-height: 1.5; }
+
+  /* ── Sidebar ── */
+  #sidebar {
+    width: 240px; min-width: 240px; background: var(--bg-sidebar);
+    border-right: 1px solid var(--border); display: flex; flex-direction: column;
+  }
+  .sidebar-logo {
+    padding: 18px 18px 6px; font-size: 1.2rem; font-weight: 600;
+    color: var(--accent); letter-spacing: .3px;
+  }
+  #project-badge {
+    padding: 0 18px 12px; font-size: .72rem; color: var(--text-system);
+    border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 4px;
+  }
+  #project-badge .proj-name { color: var(--text-secondary); font-weight: 500; }
+  .sidebar-section {
+    padding: 14px 12px 6px; font-size: .7rem; font-weight: 600;
+    text-transform: uppercase; letter-spacing: .08em; color: var(--text-secondary);
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .sidebar-section .add-btn {
+    background: none; border: none; color: var(--text-secondary); font-size: 1.1rem;
+    line-height: 1; cursor: pointer; padding: 1px 5px; border-radius: 4px;
+    transition: background .15s, color .15s;
+  }
+  .sidebar-section .add-btn:hover { background: var(--bg-panel); color: var(--text-primary); }
+  .sidebar-section .add-btn.hidden { display: none; }
+
+  #create-channel-form { padding: 0 8px 8px; display: none; }
+  #create-channel-form.visible { display: block; }
+  #new-channel-input {
+    width: 100%; padding: 7px 10px; background: var(--bg-primary);
+    border: 1px solid var(--accent); border-radius: 6px; color: var(--text-primary);
+    font-size: .85rem; font-family: inherit; outline: none;
+  }
+  #new-channel-input::placeholder { color: var(--text-system); }
+
+  .channel-list { list-style: none; padding: 0 8px; }
+  .channel-item {
+    position: relative; display: flex; align-items: center; gap: 6px;
+    padding: 7px 10px; border-radius: 6px; cursor: pointer; color: var(--text-secondary);
+    font-size: .9rem; border-left: 3px solid transparent;
+    transition: background .15s, color .15s; user-select: none;
+  }
+  .channel-item:hover { background: var(--bg-panel); color: var(--text-primary); }
+  .channel-item.active { background: rgba(245,166,35,.1); color: var(--text-primary); border-left-color: var(--accent); }
+  .channel-item .hash { color: var(--text-secondary); font-size: .85rem; flex-shrink: 0; }
+  .channel-item.active .hash { color: var(--accent); }
+  .channel-item .ch-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .unread-badge {
+    background: var(--accent); color: #0f0f14; font-size: .68rem; font-weight: 700;
+    border-radius: 10px; padding: 1px 6px; min-width: 18px; text-align: center;
+    display: none; flex-shrink: 0;
+  }
+  .unread-badge.visible { display: block; }
+  .ch-actions { display: flex; gap: 2px; flex-shrink: 0; }
+  .ch-delete, .ch-rename {
+    background: none; border: none; color: transparent; cursor: pointer;
+    font-size: .9rem; line-height: 1; padding: 2px 4px; border-radius: 3px; transition: color .15s;
+  }
+  .channel-item:hover .ch-delete,
+  .channel-item:hover .ch-rename { color: var(--text-system); }
+  .ch-delete:hover { color: var(--danger) !important; }
+  .ch-rename:hover { color: var(--accent) !important; }
+  .ch-rename-input {
+    flex: 1; min-width: 0; background: transparent; border: none;
+    border-bottom: 1px solid var(--accent); color: var(--text-primary);
+    font-size: .9rem; font-family: inherit; outline: none; padding: 0 2px;
+  }
+
+  .user-list { list-style: none; padding: 0 8px 12px; flex: 1; overflow-y: auto; }
+  .user-list li {
+    display: flex; align-items: center; gap: 8px;
+    padding: 5px 10px; font-size: .85rem; color: var(--text-secondary);
+  }
+  .user-list li::before {
+    content: ''; width: 8px; height: 8px; border-radius: 50%;
+    background: var(--online-dot); flex-shrink: 0;
+  }
+
+  /* ── Main ── */
+  #main {
+    flex: 1; display: flex; flex-direction: column; min-width: 0;
+    min-height: 0; overflow: hidden;
+  }
+
+  #chat-header {
+    padding: 14px 20px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 8px; font-weight: 500;
+    font-size: .95rem; background: var(--bg-sidebar); flex-shrink: 0;
+  }
+  #chat-header .hash { color: var(--accent); font-size: 1rem; }
+  #chat-header .channel-name { color: var(--text-primary); }
+  #channel-topic {
+    flex: 1; font-size: .78rem; color: var(--text-secondary); font-weight: 400;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-style: italic;
+  }
+  #channel-topic:empty { flex: 1; }
+  #channel-topic[data-admin="true"] { cursor: pointer; }
+  #channel-topic[data-admin="true"]:hover { color: var(--accent); }
+  #chat-header .user-pill {
+    font-size: .8rem; color: var(--text-secondary); background: var(--bg-panel);
+    padding: 4px 10px; border-radius: 20px; border: 1px solid var(--border);
+    cursor: pointer; transition: border-color .15s, color .15s; flex-shrink: 0;
+  }
+  #chat-header .user-pill:hover { border-color: var(--accent); color: var(--text-primary); }
+  #rename-input {
+    font-size: .8rem; font-family: inherit; color: var(--text-primary);
+    background: var(--bg-primary); border: 1px solid var(--accent);
+    border-radius: 20px; padding: 4px 10px; outline: none; width: 120px;
+  }
+  .header-action {
+    background: none; border: 1px solid var(--border); color: var(--text-secondary);
+    font-size: .78rem; font-family: inherit; padding: 5px 8px; border-radius: 6px;
+    cursor: pointer; transition: border-color .15s, color .15s;
+    white-space: nowrap; flex-shrink: 0;
+  }
+  .header-action:hover { border-color: var(--accent); color: var(--text-primary); }
+  #clear-btn:hover { border-color: var(--danger) !important; color: var(--danger) !important; }
+
+  /* ── Search bar ── */
+  #search-bar {
+    padding: 8px 20px; background: var(--bg-sidebar); border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 8px; flex-shrink: 0;
+  }
+  #search-bar.hidden { display: none; }
+  #search-input {
+    flex: 1; padding: 6px 12px; background: var(--bg-primary); border: 1px solid var(--border);
+    border-radius: 6px; color: var(--text-primary); font-size: .875rem; font-family: inherit;
+    outline: none; transition: border-color .2s;
+  }
+  #search-input:focus { border-color: var(--accent); }
+  #search-input::placeholder { color: var(--text-system); }
+  #search-close {
+    background: none; border: none; color: var(--text-secondary);
+    font-size: 1.1rem; cursor: pointer; padding: 2px 6px; border-radius: 4px;
+  }
+  #search-close:hover { color: var(--text-primary); }
+  .msg.search-hidden { display: none !important; }
+  .msg.search-match { outline: 1px solid rgba(245,166,35,.3); }
+
+  /* ── Countdown bar ── */
+  #countdown-bar {
+    padding: 7px 20px; background: rgba(245,166,35,.07);
+    border-bottom: 1px solid rgba(245,166,35,.2);
+    display: flex; align-items: center; gap: 12px; font-size: .82rem; flex-shrink: 0;
+  }
+  #countdown-bar.hidden { display: none; }
+  .countdown-dot {
+    width: 8px; height: 8px; border-radius: 50%; background: var(--accent);
+    flex-shrink: 0; animation: pulse 1.8s ease-in-out infinite;
+  }
+  #countdown-label { flex: 1; color: var(--accent); font-weight: 500; }
+  #countdown-time {
+    font-size: .9rem; font-weight: 600; color: var(--accent);
+    font-variant-numeric: tabular-nums; min-width: 60px; text-align: right;
+  }
+  #countdown-stop-btn {
+    background: none; border: 1px solid rgba(245,166,35,.3); border-radius: 5px;
+    color: var(--accent); font-family: inherit; font-size: .75rem;
+    padding: 3px 8px; cursor: pointer; transition: background .15s;
+  }
+  #countdown-stop-btn:hover { background: rgba(245,166,35,.12); }
+  #countdown-stop-btn.hidden { display: none; }
+
+  /* ── Timer panel ── */
+  #timer-panel {
+    padding: 10px 20px; background: var(--bg-panel);
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 8px; flex-shrink: 0; flex-wrap: wrap;
+  }
+  #timer-panel.hidden { display: none; }
+  .timer-label-text { font-size: .78rem; color: var(--text-secondary); flex-shrink: 0; }
+  .timer-inputs { display: flex; align-items: center; gap: 3px; flex-shrink: 0; }
+  .timer-input {
+    width: 42px; padding: 5px 4px; background: var(--bg-primary);
+    border: 1px solid var(--border); border-radius: 6px; color: var(--text-primary);
+    font-size: .85rem; font-family: inherit; text-align: center; outline: none;
+    transition: border-color .2s;
+  }
+  .timer-input:focus { border-color: var(--accent); }
+  .timer-sep { color: var(--text-secondary); font-weight: 600; font-size: .9rem; }
+  #timer-label-input {
+    flex: 1; min-width: 90px; padding: 5px 9px; background: var(--bg-primary);
+    border: 1px solid var(--border); border-radius: 6px; color: var(--text-primary);
+    font-size: .85rem; font-family: inherit; outline: none; transition: border-color .2s;
+  }
+  #timer-label-input:focus { border-color: var(--accent); }
+  #timer-label-input::placeholder { color: var(--text-system); }
+  .timer-btn {
+    padding: 5px 12px; border-radius: 6px; font-family: inherit;
+    font-size: .8rem; font-weight: 600; cursor: pointer; transition: opacity .15s; flex-shrink: 0;
+  }
+  .timer-btn.start { background: var(--accent); color: #0f0f14; border: none; }
+  .timer-btn.start:hover { opacity: .88; }
+  .timer-btn.stop {
+    background: none; border: 1px solid rgba(245,166,35,.4); color: var(--accent);
+  }
+  .timer-btn.stop:hover { background: rgba(245,166,35,.1); }
+
+  /* ── Messages ── */
+  #messages {
+    flex: 1; overflow-y: auto; padding: 16px 20px;
+    min-height: 0; display: flex; flex-direction: column; gap: 2px;
+    scroll-behavior: smooth; -webkit-overflow-scrolling: touch; overscroll-behavior: contain;
+  }
+  @keyframes slideIn {
+    from { opacity: 0; transform: translateY(6px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  @keyframes msgHighlight {
+    0%   { background: rgba(245,166,35,.2); }
+    40%  { background: rgba(245,166,35,.1); }
+    100% { background: transparent; }
+  }
+  .msg { display: flex; gap: 10px; padding: 4px 6px; border-radius: 6px; }
+  .msg.new-msg { animation: slideIn .18s ease-out, msgHighlight 2.5s ease-out forwards; }
+  .msg .timestamp { font-size: .72rem; color: var(--text-system); min-width: 36px; padding-top: 3px; flex-shrink: 0; }
+  .msg .body { flex: 1; min-width: 0; }
+  .msg .sender { font-weight: 600; font-size: .85rem; color: var(--accent); margin-bottom: 1px; }
+  .msg .text { font-size: .9rem; color: var(--text-primary); line-height: 1.45; word-break: break-word; }
+  .msg.own { flex-direction: row-reverse; background: rgba(245,166,35,.07); border-radius: 8px; }
+  .msg.own .body { text-align: right; }
+  .msg.own .sender { color: var(--text-secondary); font-weight: 500; }
+  .msg.system { justify-content: center; padding: 4px 0; }
+  .msg.system .text { font-size: .78rem; color: var(--text-system); font-style: italic; }
+
+  /* ── Mentions ── */
+  .mention { color: var(--accent); font-weight: 600; border-radius: 3px; padding: 0 2px; }
+  .mention.self { background: rgba(245,166,35,.18); }
+
+  /* ── File card ── */
+  .file-card {
+    display: inline-flex; align-items: center; gap: 10px; padding: 10px 14px;
+    background: var(--bg-panel); border: 1px solid var(--border); border-radius: 8px;
+    margin-top: 4px; max-width: 300px; text-decoration: none; transition: border-color .15s;
+  }
+  .file-card:hover { border-color: var(--accent); }
+  .file-icon { font-size: 1.6rem; flex-shrink: 0; line-height: 1; }
+  .file-info { flex: 1; min-width: 0; }
+  .file-name { font-size: .85rem; font-weight: 500; color: var(--text-primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .file-size { font-size: .75rem; color: var(--text-secondary); margin-top: 1px; }
+
+  /* ── Input bar ── */
+  #input-bar {
+    padding: 14px 20px; background: var(--bg-panel); border-top: 1px solid var(--border);
+    display: flex; gap: 10px; flex-shrink: 0; align-items: center; margin-top: auto;
+  }
+  #upload-btn {
+    background: none; border: 1px solid var(--border); border-radius: 8px;
+    color: var(--text-secondary); font-size: 1.1rem; padding: 8px 10px; cursor: pointer;
+    transition: border-color .15s, color .15s; flex-shrink: 0; line-height: 1;
+  }
+  #upload-btn:hover { border-color: var(--accent); color: var(--accent); }
+  #file-input { display: none; }
+  #msg-input {
+    flex: 1; padding: 10px 14px; background: var(--bg-primary); border: 1px solid var(--border);
+    border-radius: 8px; color: var(--text-primary); font-size: .9rem; font-family: inherit;
+    outline: none; transition: border-color .2s; min-width: 0;
+  }
+  #msg-input:focus { border-color: var(--accent); }
+  #msg-input::placeholder { color: var(--text-system); }
+  #send-btn {
+    padding: 10px 18px; background: var(--accent); color: #0f0f14; font-weight: 600;
+    font-size: .9rem; font-family: inherit; border: none; border-radius: 8px;
+    cursor: pointer; transition: opacity .15s; flex-shrink: 0; white-space: nowrap;
+  }
+  #send-btn:hover { opacity: .88; }
+
+  /* ── Users modal ── */
+  #users-modal {
+    position: fixed; inset: 0; z-index: 200;
+    display: flex; align-items: center; justify-content: center;
+  }
+  #users-modal.hidden { display: none; }
+  .users-card {
+    position: relative; background: var(--bg-panel); border: 1px solid var(--border);
+    border-radius: 10px; width: 320px; max-height: 480px;
+    display: flex; flex-direction: column; z-index: 1; overflow: hidden;
+  }
+  .users-card-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 16px 18px 12px; border-bottom: 1px solid var(--border);
+    font-weight: 600; font-size: .9rem; color: var(--text-primary); flex-shrink: 0;
+  }
+  .users-card-header button {
+    background: none; border: none; color: var(--text-secondary);
+    font-size: 1.2rem; cursor: pointer; line-height: 1; padding: 2px 4px;
+  }
+  .users-card-header button:hover { color: var(--text-primary); }
+  #users-admin-list { list-style: none; overflow-y: auto; flex: 1; padding: 8px 0; }
+  .user-admin-item { display: flex; align-items: center; gap: 10px; padding: 9px 18px; transition: background .12s; }
+  .user-admin-item:hover { background: rgba(255,255,255,.03); }
+  .user-admin-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; background: var(--text-system); }
+  .user-admin-dot.online { background: var(--online-dot); }
+  .user-admin-name { flex: 1; font-size: .875rem; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .user-admin-name.me { color: var(--accent); }
+  .user-admin-delete {
+    background: none; border: none; color: var(--text-system); cursor: pointer;
+    font-size: .9rem; padding: 3px 6px; border-radius: 4px;
+    transition: color .15s, background .15s; flex-shrink: 0;
+  }
+  .user-admin-delete:hover { color: var(--danger); background: rgba(224,92,92,.1); }
+  .users-empty { padding: 24px; text-align: center; color: var(--text-system); font-size: .85rem; }
+
+  /* ── Sidebar footer ── */
+  .sidebar-footer {
+    padding: 10px 12px; border-top: 1px solid var(--border);
+    flex-shrink: 0; display: flex; gap: 8px;
+  }
+  .footer-btn {
+    flex: 1; padding: 8px; background: none; border: 1px solid var(--border);
+    color: var(--text-secondary); font-family: inherit; font-size: .8rem; font-weight: 600;
+    border-radius: 7px; cursor: pointer; opacity: .7;
+    transition: opacity .15s, background .15s, color .15s, border-color .15s;
+  }
+  .footer-btn:hover { opacity: 1; }
+  #logout-btn:hover { border-color: var(--accent); color: var(--accent); }
+  #admin-btn { border-color: rgba(245,166,35,.4); color: var(--accent); }
+  #admin-btn:hover { background: rgba(245,166,35,.1); opacity: 1; }
+  #admin-btn.hidden { display: none; }
+
+  /* scrollbar */
+  ::-webkit-scrollbar { width: 5px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+  /* ── Call bar ── */
+  #call-bar {
+    background: rgba(76,175,122,.08); border-bottom: 1px solid rgba(76,175,122,.18);
+    padding: 7px 20px; display: flex; align-items: center; gap: 12px;
+    font-size: .82rem; flex-shrink: 0;
+  }
+  #call-bar.hidden { display: none; }
+  .call-dot {
+    width: 8px; height: 8px; border-radius: 50%; background: var(--online-dot);
+    flex-shrink: 0; animation: pulse 1.8s ease-in-out infinite;
+  }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .4; } }
+  #call-names { flex: 1; color: var(--online-dot); font-weight: 500; }
+  #call-controls { display: flex; gap: 6px; }
+  #call-controls.hidden { display: none; }
+  #mute-btn {
+    padding: 4px 11px; background: rgba(255,255,255,.07); border: 1px solid var(--border);
+    border-radius: 6px; color: var(--text-secondary); font-family: inherit;
+    font-size: .78rem; font-weight: 600; cursor: pointer; transition: background .15s, color .15s;
+  }
+  #mute-btn.muted { background: rgba(245,166,35,.15); color: var(--accent); border-color: var(--accent); }
+  #hangup-btn {
+    padding: 4px 11px; background: var(--danger); border: none; border-radius: 6px;
+    color: #fff; font-family: inherit; font-size: .78rem; font-weight: 600;
+    cursor: pointer; opacity: .9; transition: opacity .15s;
+  }
+  #hangup-btn:hover { opacity: 1; }
+  #call-btn {
+    padding: 10px 14px; background: rgba(76,175,122,.12); border: 1px solid rgba(76,175,122,.25);
+    border-radius: 8px; color: var(--online-dot); font-family: inherit; font-size: .85rem;
+    font-weight: 600; cursor: pointer; flex-shrink: 0; transition: background .15s; white-space: nowrap;
+  }
+  #call-btn:hover { background: rgba(76,175,122,.22); }
+  #call-btn.in-call { background: var(--danger); color: #fff; border-color: var(--danger); }
+
+  /* ── Mobile ── */
+  #drawer-overlay {
+    display: none; position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 40;
+  }
+  #drawer-overlay.visible { display: block; }
+  #menu-btn {
+    display: none; background: none; border: none; color: var(--text-secondary);
+    cursor: pointer; padding: 4px 6px; font-size: 1.3rem; line-height: 1; flex-shrink: 0;
+  }
+  @media (max-width: 639px) {
+    body { flex-direction: column; }
+    #main { height: 100%; min-height: 0; }
+    #menu-btn { display: flex; align-items: center; }
+    #sidebar {
+      position: fixed; top: 0; left: 0; bottom: 0; width: 260px; z-index: 50;
+      transform: translateX(-100%); transition: transform .25s ease;
+    }
+    #sidebar.open { transform: translateX(0); }
+    #chat-header { padding: 12px 14px; font-size: .9rem; gap: 6px; }
+    #clear-btn { display: none !important; }
+    #messages { padding: 12px 14px; }
+    #input-bar {
+      padding: 10px 12px calc(10px + env(safe-area-inset-bottom)); gap: 8px;
+    }
+    #upload-btn { padding: 7px 8px; font-size: 1rem; }
+    #send-btn { padding: 8px 10px; font-size: .82rem; min-width: 72px; }
+    #call-btn { padding: 8px 8px; font-size: .78rem; min-width: 56px; }
+    #msg-input { font-size: 16px; min-width: 0; }
+    #search-input,
+    #new-channel-input,
+    #rename-input,
+    .ch-rename-input,
+    .timer-input,
+    #timer-label-input,
+    .admin-input,
+    .overlay-card input,
+    .usettings-select {
+      font-size: 16px;
+    }
+    #toast-stack { left: 12px; right: 12px; bottom: calc(12px + env(safe-area-inset-bottom)); }
+    .toast { min-width: 0; }
+    .overlay-card { width: calc(100% - 32px); padding: 28px 24px; }
+    .confirm-card { width: calc(100% - 48px); }
+    .admin-container { flex-direction: column; height: calc(100vh - 32px); }
+    .admin-sidebar {
+      width: 100%; min-width: unset; flex-direction: row; padding: 0;
+      overflow-x: auto; border-right: none; border-bottom: 1px solid var(--border);
+    }
+    .admin-tab-btn {
+      border-left: none; border-bottom: 3px solid transparent;
+      padding: 12px 14px; white-space: nowrap;
+    }
+    .admin-tab-btn.active { border-bottom-color: var(--accent); border-left-color: transparent; }
+    .admin-close { display: none; }
+    .admin-sidebar-title { display: none; }
+    .admin-content { padding: 16px; }
+    #timer-panel { padding: 8px 14px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- User settings modal -->
+<div id="user-settings-modal" class="hidden">
+  <div class="confirm-backdrop" onclick="closeUserSettings()"></div>
+  <div class="usettings-card">
+    <div class="usettings-header">
+      <span id="user-settings-title">Persoonlijke instellingen</span>
+      <button onclick="closeUserSettings()">×</button>
+    </div>
+    <div class="usettings-body" id="usettings-body">
+      <p style="color:var(--text-system);font-size:.85rem;">Laden…</p>
+    </div>
+  </div>
+</div>
+
+<!-- Admin modal -->
+<div id="admin-modal" class="hidden">
+  <div class="admin-backdrop" onclick="closeAdminModal()"></div>
+  <div class="admin-container">
+    <div class="admin-sidebar">
+      <div class="admin-sidebar-title" id="admin-title-label">Beheer</div>
+      <button class="admin-tab-btn active" id="admin-tab-general-btn" onclick="adminTab('general')">⚙ Algemeen</button>
+      <button class="admin-tab-btn" id="admin-tab-projects-btn" onclick="adminTab('projects')">📁 Projecten</button>
+      <button class="admin-tab-btn" id="admin-tab-users-btn" onclick="adminTab('users')">👤 Gebruikers</button>
+      <button class="admin-tab-btn" id="admin-tab-danger-btn" onclick="adminTab('danger')">⚠ Gevaar</button>
+      <button class="admin-close" id="admin-close-btn" onclick="closeAdminModal()">✕ Sluiten</button>
+    </div>
+    <div class="admin-content" id="admin-content">
+      <p style="color:var(--text-secondary);font-size:.85rem;">Laden…</p>
+    </div>
+  </div>
+</div>
+
+<!-- Users modal -->
+<div id="users-modal" class="hidden">
+  <div class="confirm-backdrop" onclick="closeUsersModal()"></div>
+  <div class="users-card">
+    <div class="users-card-header">
+      <span id="users-modal-title">Gebruikersbeheer</span>
+      <button onclick="closeUsersModal()">×</button>
+    </div>
+    <ul id="users-admin-list"></ul>
+  </div>
+</div>
+
+<!-- Confirm modal -->
+<div id="confirm-modal" class="hidden">
+  <div class="confirm-backdrop" onclick="closeConfirm()"></div>
+  <div class="confirm-card">
+    <p id="confirm-msg">Weet je het zeker?</p>
+    <div class="confirm-btns">
+      <button id="confirm-cancel-btn" onclick="closeConfirm()">Annuleer</button>
+      <button id="confirm-ok-btn" class="btn-danger">Bevestig</button>
+    </div>
+  </div>
+</div>
+
+<!-- Auth overlay -->
+<div id="overlay">
+  <div class="overlay-card">
+    <div class="logo">⚡ StageChat</div>
+    <div class="auth-tabs">
+      <button class="tab-btn active" id="tab-login"    onclick="showTab('login')">Inloggen</button>
+      <button class="tab-btn"        id="tab-register" onclick="showTab('register')">Registreren</button>
+    </div>
+    <input id="auth-username" type="text"     placeholder="Gebruikersnaam" maxlength="30" autocomplete="username">
+    <input id="auth-password" type="password" placeholder="Wachtwoord"     maxlength="100" autocomplete="current-password">
+    <div class="auth-error hidden" id="auth-error-msg"></div>
+    <button class="submit-btn" id="auth-btn" onclick="submitAuth()">Inloggen</button>
+  </div>
+</div>
+
+<!-- Drawer backdrop (mobile) -->
+<div id="drawer-overlay" onclick="closeSidebar()"></div>
+<div id="toast-stack"></div>
+
+<!-- Sidebar -->
+<nav id="sidebar">
+  <div class="sidebar-logo">⚡ StageChat</div>
+  <div id="project-badge"><span class="proj-name">laden…</span></div>
+
+  <div class="sidebar-section">
+    <span id="sidebar-channels-label">Kanalen</span>
+    <button class="add-btn hidden" id="add-channel-btn" title="Nieuw kanaal aanmaken" onclick="toggleCreateChannel()">+</button>
+  </div>
+  <div id="create-channel-form">
+    <input id="new-channel-input" type="text" placeholder="kanaal-naam (a-z, 0-9, -)" maxlength="20" autocomplete="off">
+  </div>
+  <ul class="channel-list" id="channel-list"></ul>
+
+  <div class="sidebar-section">
+    <span id="sidebar-online-label">Online</span>
+  </div>
+  <ul class="user-list" id="user-list"></ul>
+
+  <div class="sidebar-footer">
+    <button id="logout-btn" class="footer-btn" onclick="logout()">Uitloggen</button>
+    <button id="admin-btn"  class="footer-btn hidden" onclick="openAdminModal()">⚙ Beheer</button>
+  </div>
+</nav>
+
+<!-- Main chat area -->
+<div id="main">
+  <div id="chat-header">
+    <button id="menu-btn" onclick="openSidebar()" aria-label="Menu">&#9776;</button>
+    <span class="hash">#</span>
+    <span class="channel-name" id="header-channel">laden…</span>
+    <span id="channel-topic"></span>
+    <span class="user-pill" id="header-user" onclick="startRename()" title="Naam wijzigen"></span>
+    <button class="header-action" id="settings-btn" onclick="openUserSettings()" title="Persoonlijke instellingen">⚙</button>
+    <button class="header-action" id="search-btn" onclick="openSearch()" title="Zoeken">🔍</button>
+    <button class="header-action" id="export-btn" onclick="exportChat()" title="Exporteer chat">↓</button>
+    <button class="header-action" id="theme-btn" onclick="toggleTheme()" title="Thema wisselen">◐</button>
+    <button class="header-action" id="clear-btn" onclick="clearCurrentChannel()" title="Wis berichten" style="display:none;">Wis</button>
+  </div>
+
+  <div id="search-bar" class="hidden">
+    <input id="search-input" type="text" placeholder="Zoek in berichten…" autocomplete="off">
+    <button id="search-close" onclick="closeSearch()">×</button>
+  </div>
+
+  <div id="countdown-bar" class="hidden">
+    <div class="countdown-dot"></div>
+    <span id="countdown-label">Aftellen</span>
+    <span id="countdown-time">--:--</span>
+    <button id="countdown-stop-btn" class="hidden" onclick="stopCountdown()">Stop</button>
+  </div>
+
+  <div id="timer-panel" class="hidden">
+    <span class="timer-label-text" id="timer-label-text">Timer:</span>
+    <div class="timer-inputs">
+      <input class="timer-input" id="timer-h" type="number" min="0" max="23" value="0" placeholder="u">
+      <span class="timer-sep">:</span>
+      <input class="timer-input" id="timer-m" type="number" min="0" max="59" value="5" placeholder="m">
+      <span class="timer-sep">:</span>
+      <input class="timer-input" id="timer-s" type="number" min="0" max="59" value="0" placeholder="s">
+    </div>
+    <input id="timer-label-input" type="text" placeholder="Label (optioneel)…" maxlength="40" autocomplete="off">
+    <button class="timer-btn start" id="timer-start-btn" onclick="startTimerFromPanel()">Start</button>
+    <button class="timer-btn stop" id="timer-stop-btn" onclick="stopCountdown()">Stop</button>
+  </div>
+
+  <div id="call-bar" class="hidden">
+    <div class="call-dot"></div>
+    <span id="call-names"></span>
+    <div id="call-controls" class="hidden">
+      <button id="mute-btn" onclick="toggleMute()">Dempen</button>
+      <button id="hangup-btn" onclick="leaveCall()">Stop</button>
+    </div>
+  </div>
+
+  <div id="messages"></div>
+
+  <div id="input-bar">
+    <button id="upload-btn" title="Bestand sturen" onclick="document.getElementById('file-input').click()">📎</button>
+    <input id="file-input" type="file">
+    <input id="msg-input" type="text" placeholder="Bericht…" maxlength="500" autocomplete="off">
+    <button id="send-btn">Verstuur</button>
+    <button id="call-btn" onclick="toggleCall()">Intercom</button>
+  </div>
+</div>
+
+<script>
+  const STORAGE_KEY_TOKEN    = 'stagechat_token';
+  const STORAGE_KEY_USER     = 'stagechat_user';
+  const STORAGE_KEY_THEME    = 'stagechat_theme';
+  const STORAGE_KEY_SOUND_EN = 'stagechat_sound_enabled';
+  const STORAGE_KEY_SOUND_TY = 'stagechat_sound_type';
+  const STORAGE_KEY_AIN      = 'stagechat_audio_in';
+  const STORAGE_KEY_AIN_CH   = 'stagechat_audio_in_ch';
+  const STORAGE_KEY_AOUT     = 'stagechat_audio_out';
+  const STORAGE_KEY_AOUT_CH  = 'stagechat_audio_out_ch';
+  const STORAGE_KEY_SHOW_SYS = 'stagechat_show_system_messages';
+  const MAX_AUDIO_CHANNELS   = 16;
+
+  function readStorage(key)       { try { return localStorage.getItem(key) || ''; } catch(_) { return ''; } }
+  function writeStorage(key, val) { try { localStorage.setItem(key, val); } catch(_) {} }
+  function removeStorage(key)     { try { localStorage.removeItem(key); } catch(_) {} }
+
+  // ── Per-user preferences ──
+  let soundEnabled  = readStorage(STORAGE_KEY_SOUND_EN) !== 'false';
+  let showSystemMessages = readStorage(STORAGE_KEY_SHOW_SYS) === 'true';
+  let soundType     = readStorage(STORAGE_KEY_SOUND_TY) || 'beep';
+  let prefAudioIn   = readStorage(STORAGE_KEY_AIN)  || '';
+  let prefAudioInCh = Math.max(1, parseInt(readStorage(STORAGE_KEY_AIN_CH), 10)  || 1);
+  let prefAudioOut  = readStorage(STORAGE_KEY_AOUT) || '';
+  let prefAudioOutCh;
+  {
+    const storedOutCh = parseInt(readStorage(STORAGE_KEY_AOUT_CH), 10);
+    prefAudioOutCh = Number.isFinite(storedOutCh) ? Math.max(0, Math.min(MAX_AUDIO_CHANNELS, storedOutCh)) : 0;
+  }
+
+  let userName       = readStorage(STORAGE_KEY_USER);
+  let authToken      = readStorage(STORAGE_KEY_TOKEN);
+  let currentChannel = 'algemeen';
+  let currentProject = '';
+  let socket         = null;
+  let totalUnread    = 0;
+  let settingsSavePending = false;
+  let currentTab     = 'login';
+  let isAdmin        = false;
+  let appConfig      = { language: 'nl', allow_all_channel_edit: false, allow_registration: true, allow_all_countdown: false };
+  let channelTopics  = {};
+  let countdownInterval = null;
+  let countdownEndTime  = 0;
+  let adminData      = null;
+  let activeAdminTab = 'general';
+  let CHANNELS       = [];
+  let audioDevices   = { inputs: [], outputs: [] };
+  let audioDeviceChannels = { inputs: {}, outputs: {} };
+  let audioOutputSupport = {};
+  let localCaptureStream = null;
+  let localInputCtx = null;
+  let localInputRoute = null;
+  let remoteOutputCtx = null;
+  let remoteOutputSinkId = '';
+  let warnedOutputRoutingUnsupported = false;
+  let warnedOutputDeviceUnsupported = false;
+  const remoteAudioRoutes = {};
+  const remoteStreams = {};
+  const unread       = {};
+
+  const INITIAL_CHANNELS = {{ channels | tojson }};
+  INITIAL_CHANNELS.forEach(ch => { unread[ch] = 0; });
+
+  const I18N = {
+    nl: {
+      tab_login: 'Inloggen',
+      tab_register: 'Registreren',
+      auth_login_btn: 'Inloggen',
+      auth_register_btn: 'Registreren',
+      auth_username_placeholder: 'Gebruikersnaam',
+      auth_password_placeholder: 'Wachtwoord',
+      send_btn: 'Verstuur',
+      save_btn: 'Opslaan',
+      sidebar_channels: 'Kanalen',
+      sidebar_online: 'Online',
+      sidebar_logout: 'Uitloggen',
+      sidebar_admin: '⚙ Beheer',
+      project_loading: 'laden…',
+      new_channel_title: 'Nieuw kanaal aanmaken',
+      new_channel_placeholder: 'kanaal-naam (a-z, 0-9, -)',
+      message_placeholder: 'Bericht in #{channel}…',
+      settings_saved: 'Instellingen opgeslagen',
+      confirm_cancel: 'Annuleer',
+      confirm_ok: 'Bevestig',
+      confirm_default: 'Weet je het zeker?',
+      menu_aria: 'Menu',
+      header_user_title: 'Naam wijzigen',
+      header_settings_title: 'Persoonlijke instellingen',
+      header_search_title: 'Zoeken',
+      header_export_title: 'Exporteer chat',
+      header_theme_title: 'Thema wisselen',
+      header_clear_title: 'Wis berichten',
+      header_clear_label: 'Wis',
+      search_placeholder: 'Zoek in berichten…',
+      countdown_label: 'Aftellen',
+      countdown_stop: 'Stop',
+      timer_label: 'Timer:',
+      timer_optional_label: 'Label (optioneel)…',
+      timer_start: 'Start',
+      timer_stop: 'Stop',
+      upload_title: 'Bestand sturen',
+      call_btn_idle: 'Intercom',
+      call_btn_hangup: 'Stop',
+      mute_btn: 'Dempen',
+      mute_btn_off: 'Dempen uit',
+      hangup_btn: 'Stop',
+      sender_you: 'Jij',
+      user_settings_title: 'Persoonlijke instellingen',
+      loading: 'Laden…',
+      browser_notifications: 'Browser notificaties',
+      notif_status: 'Status',
+      notif_enable: 'Inschakelen',
+      notif_status_default: 'Nog niet toegestaan',
+      notif_status_granted: 'Toegestaan',
+      notif_status_denied: 'Geblokkeerd in browserinstellingen',
+      notif_status_unsupported: 'Niet ondersteund',
+      notif_enabled: 'Browser notificaties ingeschakeld',
+      us_sound_section: 'Meldingsgeluid',
+      us_sound_enable: 'Geluid inschakelen',
+      us_sound_type: 'Geluidstype',
+      us_sound_test: 'Test',
+      us_sound_beep: 'Piep',
+      us_sound_chime: 'Chime',
+      us_sound_pop: 'Pop',
+      us_sound_ding: 'Ding',
+      us_system_section: 'Berichten',
+      us_system_show: 'Systeemmeldingen tonen',
+      us_audio_section: 'Audio apparaten',
+      us_audio_note: 'Sta microfoon toe om aangesloten apparaten en kanaalopties te zien.',
+      us_audio_reload: 'Opnieuw laden',
+      us_input: 'Microfooningang',
+      us_input_mode: 'Input kanaal',
+      us_output: 'Luidsprekerafgifte',
+      us_output_mode: 'Output kanaal',
+      us_default: 'Standaard',
+      us_mono: 'Mono',
+      us_stereo: 'Stereo',
+      us_stereo_pair: 'Stereo (1+2)',
+      us_channel_n: 'Kanaal {n}',
+      us_output_limit_note: 'Browser ondersteunt voor dit apparaat maximaal {n} outputkanalen.',
+      us_output_device_note_unsupported: 'Deze browser ondersteunt geen wisselen van speaker output device. Gebruik de systeem-audio instellingen.',
+      us_output_channel_note_unsupported: 'Kanaalrouting per output wordt niet ondersteund voor dit apparaat in deze browser.',
+      admin_title: 'Beheer',
+      admin_tab_general: '⚙ Algemeen',
+      admin_tab_projects: '📁 Projecten',
+      admin_tab_users: '👤 Gebruikers',
+      admin_tab_danger: '⚠ Gevaar',
+      admin_close: '✕ Sluiten',
+      general_title: 'Algemeen',
+      general_server: 'Server',
+      general_uptime: 'Uptime',
+      general_project: 'Project',
+      general_language: 'Taal',
+      general_timezone: 'Tijdzone',
+      general_max_mb: 'Max bestandsgrootte (MB)',
+      general_extensions: 'Toegestane extensies',
+      general_extensions_ph: 'leeg = alles (pdf,jpg,png…)',
+      general_all_channel_edit: 'Iedereen kan kanalen bewerken',
+      general_allow_registration: 'Registratie inschakelen',
+      general_all_countdown: 'Iedereen kan timer bedienen',
+      projects_title: 'Projecten',
+      projects_active: 'Actief',
+      projects_load: 'Laden',
+      projects_copy: 'Kopieer',
+      projects_delete: 'Verwijder',
+      projects_new: 'Nieuw project',
+      projects_new_ph: 'naam (a-z, 0-9, _, -)',
+      projects_create: 'Aanmaken',
+      users_title: 'Gebruikers',
+      users_none: 'Geen gebruikers.',
+      users_self: ' (jij)',
+      users_admin_badge: 'Admin',
+      users_demote: 'Degradeer',
+      users_promote: 'Admin',
+      users_delete: 'Verwijder',
+      channel_rename: 'Hernoemen',
+      channel_delete: 'Verwijderen',
+      topic_edit_title: 'Klik om onderwerp te wijzigen',
+      us_microphone_name: 'Microfoon ',
+      us_output_name: 'Uitgang ',
+      danger_title: 'Gevaar Zone',
+      danger_current_project: 'Huidig project',
+      danger_clear_chat_title: 'Wis chat',
+      danger_clear_chat_text: 'Verwijdert alle chatberichten van het huidige project.',
+      danger_clear_uploads_title: 'Wis uploads',
+      danger_clear_uploads_text: 'Verwijdert alle geüploade bestanden van het huidige project.',
+      danger_clear_all_title: 'Wis alles',
+      danger_clear_all_text: 'Wist berichten én uploads van het huidige project.',
+      danger_reset_title: 'Volledige reset',
+      danger_reset_text: 'Wist alle berichten, kanalen én gebruikersaccounts. Iedereen moet opnieuw registreren.',
+      danger_clear_chat_btn: 'Wis chat',
+      danger_clear_uploads_btn: 'Wis uploads',
+      danger_clear_all_btn: 'Wis alles',
+      danger_reset_btn: 'Reset alles',
+      topic_prompt: 'Onderwerp voor #{channel}:',
+      clear_channel_confirm: 'Alle berichten in #{channel} wissen?',
+      delete_channel_confirm: 'Kanaal #{channel} verwijderen?',
+      delete_user_confirm: 'Gebruiker "{username}" verwijderen?',
+      switch_project_confirm: 'Project "{name}" laden? Iedereen wordt opnieuw verbonden.',
+      copy_project_prompt: 'Naam voor kopie van "{name}":',
+      delete_project_confirm: 'Project "{name}" definitief verwijderen?',
+      clear_project_chat_confirm: 'Alle berichten wissen van "{name}"?',
+      clear_project_uploads_confirm: 'Alle uploads verwijderen van "{name}"?',
+      clear_project_all_confirm: 'Chat én uploads wissen van "{name}"?',
+      full_reset_confirm: 'VOLLEDIGE RESET: alle data wordt gewist. Doorgaan?',
+    },
+    en: {
+      tab_login: 'Login',
+      tab_register: 'Register',
+      auth_login_btn: 'Login',
+      auth_register_btn: 'Register',
+      auth_username_placeholder: 'Username',
+      auth_password_placeholder: 'Password',
+      send_btn: 'Send',
+      save_btn: 'Save',
+      sidebar_channels: 'Channels',
+      sidebar_online: 'Online',
+      sidebar_logout: 'Logout',
+      sidebar_admin: '⚙ Admin',
+      project_loading: 'loading…',
+      new_channel_title: 'Create channel',
+      new_channel_placeholder: 'channel-name (a-z, 0-9, -)',
+      message_placeholder: 'Message in #{channel}…',
+      settings_saved: 'Settings saved',
+      confirm_cancel: 'Cancel',
+      confirm_ok: 'Confirm',
+      confirm_default: 'Are you sure?',
+      menu_aria: 'Menu',
+      header_user_title: 'Rename',
+      header_settings_title: 'Personal settings',
+      header_search_title: 'Search',
+      header_export_title: 'Export chat',
+      header_theme_title: 'Switch theme',
+      header_clear_title: 'Clear messages',
+      header_clear_label: 'Clear',
+      search_placeholder: 'Search messages…',
+      countdown_label: 'Countdown',
+      countdown_stop: 'Stop',
+      timer_label: 'Timer:',
+      timer_optional_label: 'Label (optional)…',
+      timer_start: 'Start',
+      timer_stop: 'Stop',
+      upload_title: 'Send file',
+      call_btn_idle: 'Intercom',
+      call_btn_hangup: 'Stop',
+      mute_btn: 'Mute',
+      mute_btn_off: 'Unmute',
+      hangup_btn: 'Stop',
+      sender_you: 'You',
+      user_settings_title: 'Personal settings',
+      loading: 'Loading…',
+      browser_notifications: 'Browser notifications',
+      notif_status: 'Status',
+      notif_enable: 'Enable',
+      notif_status_default: 'Not allowed yet',
+      notif_status_granted: 'Allowed',
+      notif_status_denied: 'Blocked in browser settings',
+      notif_status_unsupported: 'Not supported',
+      notif_enabled: 'Browser notifications enabled',
+      us_sound_section: 'Notification sound',
+      us_sound_enable: 'Enable sound',
+      us_sound_type: 'Sound type',
+      us_sound_test: 'Test',
+      us_sound_beep: 'Beep',
+      us_sound_chime: 'Chime',
+      us_sound_pop: 'Pop',
+      us_sound_ding: 'Ding',
+      us_system_section: 'Messages',
+      us_system_show: 'Show system messages',
+      us_audio_section: 'Audio devices',
+      us_audio_note: 'Allow microphone access to see connected devices and channel options.',
+      us_audio_reload: 'Reload',
+      us_input: 'Microphone input',
+      us_input_mode: 'Input channel',
+      us_output: 'Speaker output',
+      us_output_mode: 'Output channel',
+      us_default: 'Default',
+      us_mono: 'Mono',
+      us_stereo: 'Stereo',
+      us_stereo_pair: 'Stereo (1+2)',
+      us_channel_n: 'Channel {n}',
+      us_output_limit_note: 'Browser supports a maximum of {n} output channels for this device.',
+      us_output_device_note_unsupported: 'This browser does not support switching speaker output device. Use system audio settings.',
+      us_output_channel_note_unsupported: 'Per-output channel routing is not supported for this device in this browser.',
+      admin_title: 'Admin',
+      admin_tab_general: '⚙ General',
+      admin_tab_projects: '📁 Projects',
+      admin_tab_users: '👤 Users',
+      admin_tab_danger: '⚠ Danger',
+      admin_close: '✕ Close',
+      general_title: 'General',
+      general_server: 'Server',
+      general_uptime: 'Uptime',
+      general_project: 'Project',
+      general_language: 'Language',
+      general_timezone: 'Timezone',
+      general_max_mb: 'Max file size (MB)',
+      general_extensions: 'Allowed extensions',
+      general_extensions_ph: 'empty = all (pdf,jpg,png…)',
+      general_all_channel_edit: 'Everyone can edit channels',
+      general_allow_registration: 'Enable registration',
+      general_all_countdown: 'Everyone can control timer',
+      projects_title: 'Projects',
+      projects_active: 'Active',
+      projects_load: 'Load',
+      projects_copy: 'Copy',
+      projects_delete: 'Delete',
+      projects_new: 'New project',
+      projects_new_ph: 'name (a-z, 0-9, _, -)',
+      projects_create: 'Create',
+      users_title: 'Users',
+      users_none: 'No users.',
+      users_self: ' (you)',
+      users_admin_badge: 'Admin',
+      users_demote: 'Demote',
+      users_promote: 'Admin',
+      users_delete: 'Delete',
+      channel_rename: 'Rename',
+      channel_delete: 'Delete',
+      topic_edit_title: 'Click to edit topic',
+      us_microphone_name: 'Microphone ',
+      us_output_name: 'Output ',
+      danger_title: 'Danger Zone',
+      danger_current_project: 'Current project',
+      danger_clear_chat_title: 'Clear chat',
+      danger_clear_chat_text: 'Removes all chat messages from the current project.',
+      danger_clear_uploads_title: 'Clear uploads',
+      danger_clear_uploads_text: 'Removes all uploaded files from the current project.',
+      danger_clear_all_title: 'Clear all',
+      danger_clear_all_text: 'Clears messages and uploads of the current project.',
+      danger_reset_title: 'Full reset',
+      danger_reset_text: 'Clears all messages, channels and user accounts. Everyone must register again.',
+      danger_clear_chat_btn: 'Clear chat',
+      danger_clear_uploads_btn: 'Clear uploads',
+      danger_clear_all_btn: 'Clear all',
+      danger_reset_btn: 'Reset all',
+      topic_prompt: 'Topic for #{channel}:',
+      clear_channel_confirm: 'Clear all messages in #{channel}?',
+      delete_channel_confirm: 'Delete channel #{channel}?',
+      delete_user_confirm: 'Delete user "{username}"?',
+      switch_project_confirm: 'Load project "{name}"? Everyone will reconnect.',
+      copy_project_prompt: 'Name for copy of "{name}":',
+      delete_project_confirm: 'Delete project "{name}" permanently?',
+      clear_project_chat_confirm: 'Clear all messages of "{name}"?',
+      clear_project_uploads_confirm: 'Delete all uploads of "{name}"?',
+      clear_project_all_confirm: 'Clear chat and uploads of "{name}"?',
+      full_reset_confirm: 'FULL RESET: all data will be deleted. Continue?',
+    },
+    de: {
+      tab_login: 'Anmelden',
+      tab_register: 'Registrieren',
+      auth_login_btn: 'Anmelden',
+      auth_register_btn: 'Registrieren',
+      auth_username_placeholder: 'Benutzername',
+      auth_password_placeholder: 'Passwort',
+      send_btn: 'Senden',
+      save_btn: 'Speichern',
+      sidebar_channels: 'Kanäle',
+      sidebar_online: 'Online',
+      sidebar_logout: 'Abmelden',
+      sidebar_admin: '⚙ Admin',
+      project_loading: 'laden…',
+      new_channel_title: 'Kanal erstellen',
+      new_channel_placeholder: 'kanal-name (a-z, 0-9, -)',
+      message_placeholder: 'Nachricht in #{channel}…',
+      settings_saved: 'Einstellungen gespeichert',
+      confirm_cancel: 'Abbrechen',
+      confirm_ok: 'Bestätigen',
+      confirm_default: 'Bist du sicher?',
+      menu_aria: 'Menü',
+      header_user_title: 'Namen ändern',
+      header_settings_title: 'Persönliche Einstellungen',
+      header_search_title: 'Suchen',
+      header_export_title: 'Chat exportieren',
+      header_theme_title: 'Thema wechseln',
+      header_clear_title: 'Nachrichten löschen',
+      header_clear_label: 'Löschen',
+      search_placeholder: 'Nachrichten durchsuchen…',
+      countdown_label: 'Countdown',
+      countdown_stop: 'Stopp',
+      timer_label: 'Timer:',
+      timer_optional_label: 'Label (optional)…',
+      timer_start: 'Start',
+      timer_stop: 'Stopp',
+      upload_title: 'Datei senden',
+      call_btn_idle: 'Intercom',
+      call_btn_hangup: 'Stopp',
+      mute_btn: 'Stumm',
+      mute_btn_off: 'Stumm aus',
+      hangup_btn: 'Stopp',
+      sender_you: 'Du',
+      user_settings_title: 'Persönliche Einstellungen',
+      loading: 'Laden…',
+      browser_notifications: 'Browser-Benachrichtigungen',
+      notif_status: 'Status',
+      notif_enable: 'Aktivieren',
+      notif_status_default: 'Noch nicht erlaubt',
+      notif_status_granted: 'Erlaubt',
+      notif_status_denied: 'In Browser-Einstellungen blockiert',
+      notif_status_unsupported: 'Nicht unterstützt',
+      notif_enabled: 'Browser-Benachrichtigungen aktiviert',
+      us_sound_section: 'Benachrichtigungston',
+      us_sound_enable: 'Ton aktivieren',
+      us_sound_type: 'Tonart',
+      us_sound_test: 'Test',
+      us_sound_beep: 'Piep',
+      us_sound_chime: 'Chime',
+      us_sound_pop: 'Pop',
+      us_sound_ding: 'Ding',
+      us_system_section: 'Nachrichten',
+      us_system_show: 'Systemmeldungen anzeigen',
+      us_audio_section: 'Audiogeräte',
+      us_audio_note: 'Mikrofon erlauben, um angeschlossene Geräte und Kanaloptionen zu sehen.',
+      us_audio_reload: 'Neu laden',
+      us_input: 'Mikrofoneingang',
+      us_input_mode: 'Eingangskanal',
+      us_output: 'Lautsprecherausgang',
+      us_output_mode: 'Ausgangskanal',
+      us_default: 'Standard',
+      us_mono: 'Mono',
+      us_stereo: 'Stereo',
+      us_stereo_pair: 'Stereo (1+2)',
+      us_channel_n: 'Kanal {n}',
+      us_output_limit_note: 'Browser unterstützt für dieses Gerät maximal {n} Ausgabekanäle.',
+      us_output_device_note_unsupported: 'Dieser Browser unterstützt kein Umschalten des Lautsprecher-Ausgabegeräts. Nutze die System-Audioeinstellungen.',
+      us_output_channel_note_unsupported: 'Ausgangs-Kanalrouting wird für dieses Gerät in diesem Browser nicht unterstützt.',
+      admin_title: 'Admin',
+      admin_tab_general: '⚙ Allgemein',
+      admin_tab_projects: '📁 Projekte',
+      admin_tab_users: '👤 Benutzer',
+      admin_tab_danger: '⚠ Gefahr',
+      admin_close: '✕ Schließen',
+      general_title: 'Allgemein',
+      general_server: 'Server',
+      general_uptime: 'Laufzeit',
+      general_project: 'Projekt',
+      general_language: 'Sprache',
+      general_timezone: 'Zeitzone',
+      general_max_mb: 'Max Dateigröße (MB)',
+      general_extensions: 'Erlaubte Endungen',
+      general_extensions_ph: 'leer = alle (pdf,jpg,png…)',
+      general_all_channel_edit: 'Alle können Kanäle bearbeiten',
+      general_allow_registration: 'Registrierung aktivieren',
+      general_all_countdown: 'Alle können Timer steuern',
+      projects_title: 'Projekte',
+      projects_active: 'Aktiv',
+      projects_load: 'Laden',
+      projects_copy: 'Kopieren',
+      projects_delete: 'Löschen',
+      projects_new: 'Neues Projekt',
+      projects_new_ph: 'name (a-z, 0-9, _, -)',
+      projects_create: 'Erstellen',
+      users_title: 'Benutzer',
+      users_none: 'Keine Benutzer.',
+      users_self: ' (du)',
+      users_admin_badge: 'Admin',
+      users_demote: 'Herabstufen',
+      users_promote: 'Admin',
+      users_delete: 'Löschen',
+      channel_rename: 'Umbenennen',
+      channel_delete: 'Löschen',
+      topic_edit_title: 'Zum Bearbeiten des Themas klicken',
+      us_microphone_name: 'Mikrofon ',
+      us_output_name: 'Ausgang ',
+      danger_title: 'Gefahrenzone',
+      danger_current_project: 'Aktuelles Projekt',
+      danger_clear_chat_title: 'Chat löschen',
+      danger_clear_chat_text: 'Löscht alle Chatnachrichten des aktuellen Projekts.',
+      danger_clear_uploads_title: 'Uploads löschen',
+      danger_clear_uploads_text: 'Löscht alle hochgeladenen Dateien des aktuellen Projekts.',
+      danger_clear_all_title: 'Alles löschen',
+      danger_clear_all_text: 'Löscht Nachrichten und Uploads des aktuellen Projekts.',
+      danger_reset_title: 'Vollständiger Reset',
+      danger_reset_text: 'Löscht alle Nachrichten, Kanäle und Benutzerkonten. Alle müssen sich neu registrieren.',
+      danger_clear_chat_btn: 'Chat löschen',
+      danger_clear_uploads_btn: 'Uploads löschen',
+      danger_clear_all_btn: 'Alles löschen',
+      danger_reset_btn: 'Alles zurücksetzen',
+      topic_prompt: 'Thema für #{channel}:',
+      clear_channel_confirm: 'Alle Nachrichten in #{channel} löschen?',
+      delete_channel_confirm: 'Kanal #{channel} löschen?',
+      delete_user_confirm: 'Benutzer "{username}" löschen?',
+      switch_project_confirm: 'Projekt "{name}" laden? Alle werden neu verbunden.',
+      copy_project_prompt: 'Name für Kopie von "{name}":',
+      delete_project_confirm: 'Projekt "{name}" endgültig löschen?',
+      clear_project_chat_confirm: 'Alle Nachrichten von "{name}" löschen?',
+      clear_project_uploads_confirm: 'Alle Uploads von "{name}" löschen?',
+      clear_project_all_confirm: 'Chat und Uploads von "{name}" löschen?',
+      full_reset_confirm: 'VOLLSTÄNDIGER RESET: alle Daten werden gelöscht. Fortfahren?',
+    },
+    fr: {
+      tab_login: 'Connexion',
+      tab_register: 'Inscription',
+      auth_login_btn: 'Connexion',
+      auth_register_btn: 'Inscription',
+      auth_username_placeholder: 'Nom d’utilisateur',
+      auth_password_placeholder: 'Mot de passe',
+      send_btn: 'Envoyer',
+      save_btn: 'Enregistrer',
+      sidebar_channels: 'Canaux',
+      sidebar_online: 'En ligne',
+      sidebar_logout: 'Déconnexion',
+      sidebar_admin: '⚙ Admin',
+      project_loading: 'chargement…',
+      new_channel_title: 'Créer un canal',
+      new_channel_placeholder: 'nom-canal (a-z, 0-9, -)',
+      message_placeholder: 'Message dans #{channel}…',
+      settings_saved: 'Paramètres enregistrés',
+      confirm_cancel: 'Annuler',
+      confirm_ok: 'Confirmer',
+      confirm_default: 'Êtes-vous sûr ?',
+      menu_aria: 'Menu',
+      header_user_title: 'Renommer',
+      header_settings_title: 'Paramètres personnels',
+      header_search_title: 'Rechercher',
+      header_export_title: 'Exporter le chat',
+      header_theme_title: 'Changer de thème',
+      header_clear_title: 'Effacer les messages',
+      header_clear_label: 'Effacer',
+      search_placeholder: 'Rechercher dans les messages…',
+      countdown_label: 'Compte à rebours',
+      countdown_stop: 'Stop',
+      timer_label: 'Minuteur :',
+      timer_optional_label: 'Libellé (optionnel)…',
+      timer_start: 'Démarrer',
+      timer_stop: 'Stop',
+      upload_title: 'Envoyer un fichier',
+      call_btn_idle: 'Intercom',
+      call_btn_hangup: 'Stop',
+      mute_btn: 'Muet',
+      mute_btn_off: 'Activer le son',
+      hangup_btn: 'Stop',
+      sender_you: 'Vous',
+      user_settings_title: 'Paramètres personnels',
+      loading: 'Chargement…',
+      browser_notifications: 'Notifications navigateur',
+      notif_status: 'Statut',
+      notif_enable: 'Activer',
+      notif_status_default: 'Pas encore autorisé',
+      notif_status_granted: 'Autorisé',
+      notif_status_denied: 'Bloqué dans les paramètres du navigateur',
+      notif_status_unsupported: 'Non pris en charge',
+      notif_enabled: 'Notifications navigateur activées',
+      us_sound_section: 'Son de notification',
+      us_sound_enable: 'Activer le son',
+      us_sound_type: 'Type de son',
+      us_sound_test: 'Test',
+      us_sound_beep: 'Bip',
+      us_sound_chime: 'Carillon',
+      us_sound_pop: 'Pop',
+      us_sound_ding: 'Ding',
+      us_system_section: 'Messages',
+      us_system_show: 'Afficher les messages système',
+      us_audio_section: 'Périphériques audio',
+      us_audio_note: 'Autorisez le micro pour voir les appareils connectés et les options de canal.',
+      us_audio_reload: 'Recharger',
+      us_input: 'Entrée micro',
+      us_input_mode: 'Canal d’entrée',
+      us_output: 'Sortie haut-parleur',
+      us_output_mode: 'Canal de sortie',
+      us_default: 'Par défaut',
+      us_mono: 'Mono',
+      us_stereo: 'Stéréo',
+      us_stereo_pair: 'Stéréo (1+2)',
+      us_channel_n: 'Canal {n}',
+      us_output_limit_note: 'Le navigateur prend en charge un maximum de {n} canaux de sortie pour cet appareil.',
+      us_output_device_note_unsupported: 'Ce navigateur ne prend pas en charge le changement de périphérique de sortie haut-parleur. Utilisez les réglages audio du système.',
+      us_output_channel_note_unsupported: 'Le routage de canal de sortie n’est pas pris en charge pour cet appareil dans ce navigateur.',
+      admin_title: 'Admin',
+      admin_tab_general: '⚙ Général',
+      admin_tab_projects: '📁 Projets',
+      admin_tab_users: '👤 Utilisateurs',
+      admin_tab_danger: '⚠ Danger',
+      admin_close: '✕ Fermer',
+      general_title: 'Général',
+      general_server: 'Serveur',
+      general_uptime: 'Temps actif',
+      general_project: 'Projet',
+      general_language: 'Langue',
+      general_timezone: 'Fuseau horaire',
+      general_max_mb: 'Taille max du fichier (MB)',
+      general_extensions: 'Extensions autorisées',
+      general_extensions_ph: 'vide = tout (pdf,jpg,png…)',
+      general_all_channel_edit: 'Tout le monde peut modifier les canaux',
+      general_allow_registration: 'Activer l’inscription',
+      general_all_countdown: 'Tout le monde peut contrôler le minuteur',
+      projects_title: 'Projets',
+      projects_active: 'Actif',
+      projects_load: 'Charger',
+      projects_copy: 'Copier',
+      projects_delete: 'Supprimer',
+      projects_new: 'Nouveau projet',
+      projects_new_ph: 'nom (a-z, 0-9, _, -)',
+      projects_create: 'Créer',
+      users_title: 'Utilisateurs',
+      users_none: 'Aucun utilisateur.',
+      users_self: ' (vous)',
+      users_admin_badge: 'Admin',
+      users_demote: 'Rétrograder',
+      users_promote: 'Admin',
+      users_delete: 'Supprimer',
+      channel_rename: 'Renommer',
+      channel_delete: 'Supprimer',
+      topic_edit_title: 'Cliquer pour modifier le sujet',
+      us_microphone_name: 'Micro ',
+      us_output_name: 'Sortie ',
+      danger_title: 'Zone de danger',
+      danger_current_project: 'Projet actuel',
+      danger_clear_chat_title: 'Effacer le chat',
+      danger_clear_chat_text: 'Supprime tous les messages du projet actuel.',
+      danger_clear_uploads_title: 'Effacer les uploads',
+      danger_clear_uploads_text: 'Supprime tous les fichiers uploadés du projet actuel.',
+      danger_clear_all_title: 'Effacer tout',
+      danger_clear_all_text: 'Efface les messages et les uploads du projet actuel.',
+      danger_reset_title: 'Réinitialisation complète',
+      danger_reset_text: 'Efface tous les messages, canaux et comptes utilisateurs. Tout le monde doit se réinscrire.',
+      danger_clear_chat_btn: 'Effacer le chat',
+      danger_clear_uploads_btn: 'Effacer les uploads',
+      danger_clear_all_btn: 'Effacer tout',
+      danger_reset_btn: 'Tout réinitialiser',
+      topic_prompt: 'Sujet pour #{channel} :',
+      clear_channel_confirm: 'Effacer tous les messages dans #{channel} ?',
+      delete_channel_confirm: 'Supprimer le canal #{channel} ?',
+      delete_user_confirm: 'Supprimer l’utilisateur "{username}" ?',
+      switch_project_confirm: 'Charger le projet "{name}" ? Tout le monde sera reconnecté.',
+      copy_project_prompt: 'Nom de la copie de "{name}" :',
+      delete_project_confirm: 'Supprimer définitivement le projet "{name}" ?',
+      clear_project_chat_confirm: 'Effacer tous les messages de "{name}" ?',
+      clear_project_uploads_confirm: 'Supprimer tous les uploads de "{name}" ?',
+      clear_project_all_confirm: 'Effacer chat et uploads de "{name}" ?',
+      full_reset_confirm: 'RÉINITIALISATION COMPLÈTE : toutes les données seront supprimées. Continuer ?',
+    },
+  };
+
+  // DOM refs
+  const overlay       = document.getElementById('overlay');
+  const messagesEl    = document.getElementById('messages');
+  const msgInput      = document.getElementById('msg-input');
+  const sendBtn       = document.getElementById('send-btn');
+  const headerChannel = document.getElementById('header-channel');
+  const headerUser    = document.getElementById('header-user');
+  const userListEl    = document.getElementById('user-list');
+  const channelListEl = document.getElementById('channel-list');
+  const sidebar       = document.getElementById('sidebar');
+  const drawerOverlay = document.getElementById('drawer-overlay');
+
+  function langPack() {
+    return I18N[appConfig.language] || I18N.nl;
+  }
+  function t(key, vars = {}) {
+    let out = langPack()[key] || I18N.nl[key] || key;
+    Object.keys(vars).forEach(k => { out = out.replace(`{${k}}`, vars[k]); });
+    return out;
+  }
+
+  function baseTitle() {
+    return currentProject && currentProject !== 'default'
+      ? 'StageChat \u2014 ' + currentProject
+      : 'StageChat';
+  }
+  function unreadTotal() {
+    return Object.values(unread).reduce((sum, n) => sum + (parseInt(n, 10) || 0), 0);
+  }
+  function updateDocumentTitle() {
+    totalUnread = unreadTotal();
+    document.title = totalUnread > 0 ? `(${totalUnread}) ${baseTitle()}` : baseTitle();
+  }
+
+  function applyLanguage() {
+    const loginTab = document.getElementById('tab-login');
+    const regTab = document.getElementById('tab-register');
+    const authBtn = document.getElementById('auth-btn');
+    const chLabel = document.getElementById('sidebar-channels-label');
+    const onLabel = document.getElementById('sidebar-online-label');
+    const authUser = document.getElementById('auth-username');
+    const authPass = document.getElementById('auth-password');
+    const logoutBtn = document.getElementById('logout-btn');
+    const adminBtn = document.getElementById('admin-btn');
+    const addChannelBtn = document.getElementById('add-channel-btn');
+    const newChannelInput = document.getElementById('new-channel-input');
+    const userPill = document.getElementById('header-user');
+    const settingsBtn = document.getElementById('settings-btn');
+    const searchBtn = document.getElementById('search-btn');
+    const exportBtn = document.getElementById('export-btn');
+    const themeBtn = document.getElementById('theme-btn');
+    const clearBtn = document.getElementById('clear-btn');
+    const searchInput = document.getElementById('search-input');
+    const countdownLabel = document.getElementById('countdown-label');
+    const countdownStop = document.getElementById('countdown-stop-btn');
+    const timerLabel = document.getElementById('timer-label-text');
+    const timerLabelInput = document.getElementById('timer-label-input');
+    const timerStart = document.getElementById('timer-start-btn');
+    const timerStop = document.getElementById('timer-stop-btn');
+    const uploadBtn = document.getElementById('upload-btn');
+    const callBtn = document.getElementById('call-btn');
+    const muteBtn = document.getElementById('mute-btn');
+    const hangupBtn = document.getElementById('hangup-btn');
+    const userSettingsTitle = document.getElementById('user-settings-title');
+    const adminTitle = document.getElementById('admin-title-label');
+    const adminGeneral = document.getElementById('admin-tab-general-btn');
+    const adminProjects = document.getElementById('admin-tab-projects-btn');
+    const adminUsers = document.getElementById('admin-tab-users-btn');
+    const adminDanger = document.getElementById('admin-tab-danger-btn');
+    const adminClose = document.getElementById('admin-close-btn');
+    const usersModalTitle = document.getElementById('users-modal-title');
+    const confirmCancel = document.getElementById('confirm-cancel-btn');
+    const confirmOk = document.getElementById('confirm-ok-btn');
+    const menuBtn = document.getElementById('menu-btn');
+    const projectBadgeName = document.querySelector('#project-badge .proj-name');
+    const confirmMsg = document.getElementById('confirm-msg');
+
+    if (loginTab) loginTab.textContent = t('tab_login');
+    if (regTab) regTab.textContent = t('tab_register');
+    if (authBtn) authBtn.textContent = currentTab === 'login' ? t('auth_login_btn') : t('auth_register_btn');
+    if (sendBtn) sendBtn.textContent = t('send_btn');
+    if (chLabel) chLabel.textContent = t('sidebar_channels');
+    if (onLabel) onLabel.textContent = t('sidebar_online');
+    if (authUser) authUser.placeholder = t('auth_username_placeholder');
+    if (authPass) authPass.placeholder = t('auth_password_placeholder');
+    if (logoutBtn) logoutBtn.textContent = t('sidebar_logout');
+    if (adminBtn) adminBtn.textContent = t('sidebar_admin');
+    if (addChannelBtn) addChannelBtn.title = t('new_channel_title');
+    if (newChannelInput) newChannelInput.placeholder = t('new_channel_placeholder');
+    if (userPill) userPill.title = t('header_user_title');
+    if (settingsBtn) settingsBtn.title = t('header_settings_title');
+    if (searchBtn) searchBtn.title = t('header_search_title');
+    if (exportBtn) exportBtn.title = t('header_export_title');
+    if (themeBtn) themeBtn.title = t('header_theme_title');
+    if (clearBtn) { clearBtn.title = t('header_clear_title'); clearBtn.textContent = t('header_clear_label'); }
+    if (searchInput) searchInput.placeholder = t('search_placeholder');
+    if (countdownLabel && !countdownLabel.dataset.customLabel) countdownLabel.textContent = t('countdown_label');
+    if (countdownStop) countdownStop.textContent = t('countdown_stop');
+    if (timerLabel) timerLabel.textContent = t('timer_label');
+    if (timerLabelInput) timerLabelInput.placeholder = t('timer_optional_label');
+    if (timerStart) timerStart.textContent = t('timer_start');
+    if (timerStop) timerStop.textContent = t('timer_stop');
+    if (uploadBtn) uploadBtn.title = t('upload_title');
+    if (callBtn && !inCall) callBtn.textContent = t('call_btn_idle');
+    if (muteBtn && !isMuted) muteBtn.textContent = t('mute_btn');
+    if (hangupBtn) hangupBtn.textContent = t('hangup_btn');
+    if (userSettingsTitle) userSettingsTitle.textContent = t('user_settings_title');
+    if (adminTitle) adminTitle.textContent = t('admin_title');
+    if (adminGeneral) adminGeneral.textContent = t('admin_tab_general');
+    if (adminProjects) adminProjects.textContent = t('admin_tab_projects');
+    if (adminUsers) adminUsers.textContent = t('admin_tab_users');
+    if (adminDanger) adminDanger.textContent = t('admin_tab_danger');
+    if (adminClose) adminClose.textContent = t('admin_close');
+    if (usersModalTitle) usersModalTitle.textContent = t('users_title');
+    if (confirmCancel) confirmCancel.textContent = t('confirm_cancel');
+    if (confirmOk) confirmOk.textContent = t('confirm_ok');
+    if (confirmMsg && !confirmCallback) confirmMsg.textContent = t('confirm_default');
+    if (menuBtn) menuBtn.setAttribute('aria-label', t('menu_aria'));
+    if (projectBadgeName && (!currentProject || projectBadgeName.textContent === 'laden…')) {
+      projectBadgeName.textContent = t('project_loading');
+    }
+    updateInputPlaceholder();
+    if (!document.getElementById('user-settings-modal').classList.contains('hidden')) renderUserSettings();
+    if (!document.getElementById('admin-modal').classList.contains('hidden') && adminData) renderAdminTab();
+  }
+
+  function showToast(message, type = 'success') {
+    const stack = document.getElementById('toast-stack');
+    if (!stack || !message) return;
+    const el = document.createElement('div');
+    el.className = `toast ${type}`;
+    el.textContent = message;
+    stack.appendChild(el);
+    requestAnimationFrame(() => el.classList.add('show'));
+    setTimeout(() => {
+      el.classList.remove('show');
+      setTimeout(() => el.remove(), 220);
+    }, 2400);
+  }
+
+  // ── Permissions ──
+  function canEditChannels()     { return isAdmin || appConfig.allow_all_channel_edit; }
+  function canControlCountdown() { return isAdmin || appConfig.allow_all_countdown; }
+
+  // ── App config / project ──
+  function updateAppConfig(cfg) {
+    if (!cfg) return;
+    appConfig = Object.assign({}, appConfig, cfg);
+    // Register tab visibility
+    const regBtn = document.getElementById('tab-register');
+    if (regBtn) {
+      regBtn.style.display = appConfig.allow_registration ? '' : 'none';
+      if (!appConfig.allow_registration && currentTab === 'register') showTab('login');
+    }
+    // Channel edit button
+    document.getElementById('add-channel-btn').classList.toggle('hidden', !canEditChannels());
+    // Timer panel
+    renderTimerPanel();
+    // Countdown stop button
+    document.getElementById('countdown-stop-btn').classList.toggle('hidden', !canControlCountdown());
+    // Re-render channel list to show/hide rename+delete
+    renderChannelList(CHANNELS.length ? CHANNELS : INITIAL_CHANNELS);
+    applyLanguage();
+  }
+
+  function updateProjectDisplay(name) {
+    currentProject = name || '';
+    const badge = document.getElementById('project-badge');
+    if (badge) badge.querySelector('.proj-name').textContent = currentProject || 'default';
+    updateDocumentTitle();
+  }
+
+  // ── Theme ──
+  function applyTheme(theme) { document.body.classList.toggle('light-theme', theme === 'light'); }
+  function toggleTheme() {
+    const next = document.body.classList.contains('light-theme') ? 'dark' : 'light';
+    writeStorage(STORAGE_KEY_THEME, next); applyTheme(next);
+  }
+  applyTheme(readStorage(STORAGE_KEY_THEME) || 'dark');
+
+  // ── Helpers ──
+  function escapeHtml(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+  function formatBytes(n) {
+    if (n < 1024) return n + ' B';
+    if (n < 1048576) return (n/1024).toFixed(1) + ' KB';
+    return (n/1048576).toFixed(1) + ' MB';
+  }
+  function formatUptime(s) {
+    const h = Math.floor(s/3600), m = Math.floor((s%3600)/60), sec = s%60;
+    return [h&&(h+'u'), (m||h)&&(m+'m'), sec+'s'].filter(Boolean).join(' ');
+  }
+  function getFileIcon(name) {
+    const ext = name.split('.').pop().toLowerCase();
+    const m = {pdf:'📄',doc:'📝',docx:'📝',xls:'📊',xlsx:'📊',ppt:'📑',pptx:'📑',txt:'📃',
+               jpg:'🖼',jpeg:'🖼',png:'🖼',gif:'🖼',webp:'🖼',svg:'🖼',
+               mp3:'🎵',wav:'🎵',aac:'🎵',m4a:'🎵',
+               mp4:'🎬',mov:'🎬',avi:'🎬',mkv:'🎬',
+               zip:'🗜',rar:'🗜','7z':'🗜'};
+    return m[ext] || '📎';
+  }
+  function parseMentions(text, myName) {
+    const frag = document.createDocumentFragment();
+    text.split(/(@\S+)/g).forEach(part => {
+      if (part.startsWith('@')) {
+        const name = part.slice(1);
+        const span = document.createElement('span');
+        span.className = 'mention' + (name === myName ? ' self' : '');
+        span.textContent = part;
+        frag.appendChild(span);
+      } else {
+        frag.appendChild(document.createTextNode(part));
+      }
+    });
+    return frag;
+  }
+
+  // ── Sound ──
+  function playNotificationSound() {
+    if (!soundEnabled) return;
+    try {
+      const ctx  = new (window.AudioContext || window.webkitAudioContext)();
+      const osc  = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain); gain.connect(ctx.destination);
+      const types = {
+        beep:  { freq: 880,  type: 'sine',     dur: 0.25, vol: 0.15 },
+        chime: { freq: 1047, type: 'sine',     dur: 0.5,  vol: 0.1  },
+        pop:   { freq: 440,  type: 'sine',     dur: 0.1,  vol: 0.2  },
+        ding:  { freq: 1320, type: 'triangle', dur: 0.4,  vol: 0.12 },
+      };
+      const t = types[soundType] || types.beep;
+      osc.frequency.value = t.freq; osc.type = t.type;
+      gain.gain.setValueAtTime(t.vol, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + t.dur);
+      osc.start(ctx.currentTime); osc.stop(ctx.currentTime + t.dur);
+    } catch(_) {}
+  }
+
+  // ── Auth overlay ──
+  function showOverlay() { overlay.classList.remove('hidden'); document.getElementById('auth-username').focus(); }
+  function hideOverlay()  { overlay.classList.add('hidden'); }
+  function showTab(tab) {
+    currentTab = tab;
+    document.getElementById('tab-login').classList.toggle('active', tab === 'login');
+    document.getElementById('tab-register').classList.toggle('active', tab === 'register');
+    document.getElementById('auth-btn').textContent = tab === 'login' ? t('auth_login_btn') : t('auth_register_btn');
+    clearAuthError();
+  }
+  function showAuthError(msg) {
+    const el = document.getElementById('auth-error-msg');
+    el.textContent = msg; el.classList.remove('hidden');
+  }
+  function clearAuthError() {
+    const el = document.getElementById('auth-error-msg');
+    el.textContent = ''; el.classList.add('hidden');
+  }
+  function submitAuth() {
+    const username = document.getElementById('auth-username').value.trim();
+    const password = document.getElementById('auth-password').value;
+    if (!username || !password) { showAuthError('Vul gebruikersnaam en wachtwoord in'); return; }
+    if (!socket) connectSocket();
+    if (!socket) { showAuthError('Realtime verbinding kon niet starten'); return; }
+    if (!socket.connected) socket.connect();
+    socket.emit('auth', { username, password, action: currentTab === 'login' ? 'login' : 'register' });
+  }
+  document.getElementById('auth-username').addEventListener('keydown', e => { if (e.key === 'Enter') document.getElementById('auth-password').focus(); });
+  document.getElementById('auth-password').addEventListener('keydown', e => { if (e.key === 'Enter') submitAuth(); });
+
+  // ── Confirm modal ──
+  let confirmCallback = null;
+  function confirmAction(message, cb) {
+    document.getElementById('confirm-msg').textContent = message;
+    confirmCallback = cb;
+    document.getElementById('confirm-modal').classList.remove('hidden');
+  }
+  function closeConfirm() {
+    document.getElementById('confirm-modal').classList.add('hidden');
+    confirmCallback = null;
+  }
+  document.getElementById('confirm-ok-btn').addEventListener('click', () => {
+    if (confirmCallback) confirmCallback();
+    closeConfirm();
+  });
+
+  // ── Sidebar ──
+  function openSidebar()  { sidebar.classList.add('open'); drawerOverlay.classList.add('visible'); }
+  function closeSidebar() { sidebar.classList.remove('open'); drawerOverlay.classList.remove('visible'); }
+
+  // ── Admin UI visibility ──
+  function updateAdminUI() {
+    document.getElementById('admin-btn').classList.toggle('hidden', !isAdmin);
+    document.getElementById('clear-btn').style.display = isAdmin ? '' : 'none';
+    document.getElementById('add-channel-btn').classList.toggle('hidden', !canEditChannels());
+    renderChannelList(CHANNELS.length ? CHANNELS : INITIAL_CHANNELS);
+    renderTimerPanel();
+  }
+
+  // ── Timer panel ──
+  function renderTimerPanel() {
+    document.getElementById('timer-panel').classList.toggle('hidden', !canControlCountdown());
+  }
+  function startTimerFromPanel() {
+    const h = parseInt(document.getElementById('timer-h').value) || 0;
+    const m = parseInt(document.getElementById('timer-m').value) || 0;
+    const s = parseInt(document.getElementById('timer-s').value) || 0;
+    const label = document.getElementById('timer-label-input').value.trim();
+    const seconds = h * 3600 + m * 60 + s;
+    if (seconds <= 0 || !socket) return;
+    socket.emit('start_countdown', { token: authToken, seconds, label });
+  }
+
+  // ── Channel list ──
+  function renderChannelList(channels) {
+    CHANNELS = channels;
+    const keep = new Set(channels);
+    Object.keys(unread).forEach(ch => { if (!keep.has(ch)) delete unread[ch]; });
+    channelListEl.innerHTML = '';
+    const canEdit = canEditChannels();
+    channels.forEach(ch => {
+      if (!(ch in unread)) unread[ch] = 0;
+      const li = document.createElement('li');
+      li.className = 'channel-item' + (ch === currentChannel ? ' active' : '');
+      li.dataset.channel = ch;
+
+      const hash = document.createElement('span');
+      hash.className = 'hash'; hash.textContent = '#';
+
+      const name = document.createElement('span');
+      name.className = 'ch-name'; name.textContent = ch;
+
+      const badge = document.createElement('span');
+      badge.className = 'unread-badge' + (unread[ch] > 0 ? ' visible' : '');
+      badge.id = `badge-${ch}`;
+      badge.textContent = unread[ch] > 99 ? '99+' : unread[ch];
+
+      li.appendChild(hash); li.appendChild(name); li.appendChild(badge);
+
+      if (canEdit && ch !== 'algemeen') {
+        const actions = document.createElement('div');
+        actions.className = 'ch-actions';
+
+        const ren = document.createElement('button');
+        ren.className = 'ch-rename'; ren.title = t('channel_rename'); ren.textContent = '✎';
+        ren.addEventListener('click', e => { e.stopPropagation(); startChannelRename(ch, li); });
+
+        const del = document.createElement('button');
+        del.className = 'ch-delete'; del.title = t('channel_delete'); del.textContent = '×';
+        del.addEventListener('click', e => {
+          e.stopPropagation();
+          confirmAction(t('delete_channel_confirm', { channel: ch }), () => {
+            socket.emit('delete_channel', { token: authToken, channel: ch });
+          });
+        });
+
+        actions.appendChild(ren); actions.appendChild(del); li.appendChild(actions);
+      }
+
+      li.addEventListener('click', () => switchChannel(ch));
+      channelListEl.appendChild(li);
+    });
+    updateDocumentTitle();
+  }
+
+  // ── Channel switching ──
+  function switchChannel(ch) {
+    closeSidebar();
+    if (ch === currentChannel) return;
+    if (inCall) leaveCall();
+    currentChannel = ch;
+    headerChannel.textContent = ch;
+    updateChannelTopic(ch);
+    updateInputPlaceholder();
+    unread[ch] = 0; updateBadge(ch);
+    messagesEl.innerHTML = '';
+    document.querySelectorAll('.channel-item').forEach(el => {
+      el.classList.toggle('active', el.dataset.channel === ch);
+    });
+    if (socket) socket.emit('switch_channel', { channel: ch });
+  }
+
+  function updateChannelTopic(ch) {
+    const topic = channelTopics[ch] || '';
+    const el = document.getElementById('channel-topic');
+    el.textContent = topic ? '\u2014 ' + topic : '';
+    el.dataset.admin = isAdmin ? 'true' : 'false';
+    el.title = isAdmin ? t('topic_edit_title') : '';
+  }
+  function updateInputPlaceholder() { msgInput.placeholder = t('message_placeholder', { channel: currentChannel }); }
+  function shouldRenderMessage(msg) {
+    return showSystemMessages || msg.type !== 'system';
+  }
+  function updateBadge(ch) {
+    const b = document.getElementById(`badge-${ch}`);
+    const c = unread[ch] || 0;
+    if (b) {
+      b.textContent = c > 99 ? '99+' : c;
+      b.classList.toggle('visible', c > 0);
+    }
+    updateDocumentTitle();
+  }
+
+  // Inline topic edit (click on topic in header)
+  document.getElementById('channel-topic').addEventListener('click', () => {
+    if (!isAdmin) return;
+    const current = channelTopics[currentChannel] || '';
+    const newTopic = prompt(t('topic_prompt', { channel: currentChannel }), current);
+    if (newTopic !== null && socket) {
+      socket.emit('set_channel_topic', { token: authToken, channel: currentChannel, topic: newTopic.trim() });
+    }
+  });
+
+  // ── Clear channel ──
+  function clearCurrentChannel() {
+    confirmAction(t('clear_channel_confirm', { channel: currentChannel }), () => {
+      if (socket) socket.emit('clear_channel', { token: authToken, channel: currentChannel });
+    });
+  }
+
+  // ── Rename user ──
+  function startRename() {
+    const pill = document.getElementById('header-user');
+    const input = document.createElement('input');
+    input.id = 'rename-input'; input.value = userName; input.maxLength = 30; input.autocomplete = 'off';
+    pill.replaceWith(input); input.select();
+    function finish() {
+      const newName = input.value.trim();
+      if (newName && newName !== userName) { userName = newName; if (socket) socket.emit('rename', { name: userName }); }
+      const restored = document.createElement('span');
+      restored.className = 'user-pill'; restored.id = 'header-user';
+      restored.title = t('header_user_title'); restored.textContent = userName;
+      restored.onclick = startRename; input.replaceWith(restored);
+    }
+    input.addEventListener('keydown', e => { if (e.key==='Enter') { e.preventDefault(); input.blur(); } if (e.key==='Escape') { input.value=userName; input.blur(); } });
+    input.addEventListener('blur', finish);
+  }
+
+  // ── Users modal ──
+  function openUsersModal()  { closeSidebar(); document.getElementById('users-modal').classList.remove('hidden'); if (socket) socket.emit('get_users', {}); }
+  function closeUsersModal() { document.getElementById('users-modal').classList.add('hidden'); }
+  function renderUsersAdmin(users) {
+    const list = document.getElementById('users-admin-list');
+    list.innerHTML = '';
+    if (!users.length) { list.innerHTML = `<li class="users-empty">${escapeHtml(t('users_none'))}</li>`; return; }
+    users.forEach(u => {
+      const li  = document.createElement('li'); li.className = 'user-admin-item';
+      const dot = document.createElement('span'); dot.className = 'user-admin-dot' + (u.online ? ' online' : '');
+      const nm  = document.createElement('span');
+      nm.className = 'user-admin-name' + (u.username === userName ? ' me' : '');
+      nm.textContent = u.username + (u.username === userName ? t('users_self') : '');
+      li.appendChild(dot); li.appendChild(nm);
+      if (u.username !== userName) {
+        const del = document.createElement('button'); del.className = 'user-admin-delete'; del.title = t('users_delete'); del.textContent = '×';
+        del.addEventListener('click', () => confirmAction(t('delete_user_confirm', { username: u.username }), () => { if (socket) socket.emit('delete_user', { token: authToken, username: u.username }); }));
+        li.appendChild(del);
+      }
+      list.appendChild(li);
+    });
+  }
+
+  // ── User Settings Modal ──
+  function audioDeviceCacheKey(deviceId) {
+    return deviceId && deviceId.trim() ? deviceId : '__default__';
+  }
+  function clampChannelSelection(value, fallback = 1) {
+    const n = parseInt(value, 10);
+    if (!Number.isFinite(n) || n < 1) return fallback;
+    return Math.max(1, Math.min(MAX_AUDIO_CHANNELS, n));
+  }
+  function clampOutputChannelSelection(value, fallback = 0) {
+    const n = parseInt(value, 10);
+    if (!Number.isFinite(n)) return fallback;
+    if (n <= 0) return 0;
+    return Math.max(1, Math.min(MAX_AUDIO_CHANNELS, n));
+  }
+  function supportsAudioElementSinkSelection() {
+    return typeof HTMLMediaElement !== 'undefined'
+      && HTMLMediaElement.prototype
+      && typeof HTMLMediaElement.prototype.setSinkId === 'function';
+  }
+  function supportsAudioContextSinkSelection() {
+    const AudioCtor = window.AudioContext || window.webkitAudioContext;
+    return !!(AudioCtor && AudioCtor.prototype && typeof AudioCtor.prototype.setSinkId === 'function');
+  }
+  function defaultOutputSupport(deviceId) {
+    return {
+      canSelectDevice: !deviceId || supportsAudioElementSinkSelection(),
+      canRouteChannels: !deviceId || supportsAudioContextSinkSelection(),
+    };
+  }
+  function getCurrentOutputSupport() {
+    const key = audioDeviceCacheKey(prefAudioOut);
+    return audioOutputSupport[key] || defaultOutputSupport(prefAudioOut);
+  }
+  function inferChannelsFromLabel(label) {
+    if (!label) return null;
+    const chMatch = label.match(/(\d+)\s*(?:ch|channels?)/i);
+    if (chMatch) return clampChannelSelection(chMatch[1], 0) || null;
+    const xMatch = label.match(/(\d+)\s*x\s*(\d+)/i);
+    if (xMatch) return clampChannelSelection(Math.max(parseInt(xMatch[1], 10), parseInt(xMatch[2], 10)), 0) || null;
+    return null;
+  }
+  function extractTrackChannelCount(track, fallback = 2) {
+    let detected = fallback;
+    try {
+      if (track && typeof track.getCapabilities === 'function') {
+        const caps = track.getCapabilities();
+        if (caps && caps.channelCount && Number.isFinite(caps.channelCount.max)) {
+          detected = caps.channelCount.max;
+        }
+      }
+    } catch(_) {}
+    if ((!detected || detected < 1) && track && typeof track.getSettings === 'function') {
+      const settings = track.getSettings();
+      if (settings && Number.isFinite(settings.channelCount)) detected = settings.channelCount;
+    }
+    return clampChannelSelection(detected, fallback);
+  }
+  function getCurrentInputChannelLimit() {
+    return clampChannelSelection(audioDeviceChannels.inputs[audioDeviceCacheKey(prefAudioIn)] || 2, 1);
+  }
+  function getCurrentOutputChannelLimit() {
+    const fromCache = audioDeviceChannels.outputs[audioDeviceCacheKey(prefAudioOut)];
+    if (fromCache) return clampChannelSelection(fromCache, 2);
+    return 2;
+  }
+  function buildChannelOptions(maxChannels, selectedChannel) {
+    const max = clampChannelSelection(maxChannels, 1);
+    const chosen = clampChannelSelection(selectedChannel, 1);
+    let out = '';
+    for (let i = 1; i <= max; i += 1) {
+      out += `<option value="${i}" ${i===chosen?'selected':''}>${escapeHtml(t('us_channel_n', { n: i }))}</option>`;
+    }
+    return out;
+  }
+  function buildOutputChannelOptions(maxChannels, selectedChannel, canRouteChannels) {
+    const max = clampChannelSelection(maxChannels, 2);
+    const chosen = clampOutputChannelSelection(selectedChannel, 0);
+    let out = `<option value="0" ${chosen===0?'selected':''}>${escapeHtml(t('us_stereo_pair'))}</option>`;
+    if (!canRouteChannels) return out;
+    for (let i = 1; i <= max; i += 1) {
+      out += `<option value="${i}" ${i===chosen?'selected':''}>${escapeHtml(t('us_channel_n', { n: i }))}</option>`;
+    }
+    return out;
+  }
+  function ensurePreferredAudioDevicesExist() {
+    if (prefAudioIn && !audioDevices.inputs.some(d => d.deviceId === prefAudioIn)) {
+      prefAudioIn = '';
+      writeStorage(STORAGE_KEY_AIN, prefAudioIn);
+    }
+    if (prefAudioOut && !audioDevices.outputs.some(d => d.deviceId === prefAudioOut)) {
+      prefAudioOut = '';
+      writeStorage(STORAGE_KEY_AOUT, prefAudioOut);
+    }
+  }
+  async function detectInputChannelCount(deviceId) {
+    if (!navigator.mediaDevices || typeof navigator.mediaDevices.getUserMedia !== 'function') return 1;
+    let stream = null;
+    try {
+      const constraints = deviceId
+        ? { audio: { deviceId: { exact: deviceId }, channelCount: { ideal: MAX_AUDIO_CHANNELS } }, video: false }
+        : { audio: { channelCount: { ideal: MAX_AUDIO_CHANNELS } }, video: false };
+      stream = await navigator.mediaDevices.getUserMedia(constraints);
+      const track = stream.getAudioTracks()[0];
+      const selected = audioDevices.inputs.find(d => d.deviceId === deviceId);
+      const fromLabel = clampChannelSelection(inferChannelsFromLabel(selected ? selected.label : '') || 1, 1);
+      return clampChannelSelection(Math.max(extractTrackChannelCount(track, 2), fromLabel), 1);
+    } catch(_) {
+      const selected = audioDevices.inputs.find(d => d.deviceId === deviceId);
+      return clampChannelSelection(inferChannelsFromLabel(selected ? selected.label : '') || 1, 1);
+    } finally {
+      if (stream) stream.getTracks().forEach(t => t.stop());
+    }
+  }
+  async function detectOutputChannelCount(deviceId) {
+    const key = audioDeviceCacheKey(deviceId);
+    const support = defaultOutputSupport(deviceId);
+    let detected = 2;
+    const AudioCtor = window.AudioContext || window.webkitAudioContext;
+    if (!AudioCtor) {
+      audioOutputSupport[key] = support;
+      return detected;
+    }
+    let ctx = null;
+    let sinkApplied = !deviceId;
+    try {
+      if (deviceId) {
+        try {
+          ctx = new AudioCtor({ sinkId: deviceId });
+          sinkApplied = true;
+        } catch(_) {
+          ctx = new AudioCtor();
+        }
+      } else {
+        ctx = new AudioCtor();
+        sinkApplied = true;
+      }
+      if (deviceId && typeof ctx.setSinkId === 'function') {
+        await ctx.setSinkId(deviceId);
+        sinkApplied = true;
+      }
+      const maxOut = ctx.destination && (ctx.destination.maxChannelCount || ctx.destination.channelCount);
+      if (sinkApplied && Number.isFinite(maxOut) && maxOut > 0) {
+        detected = clampChannelSelection(maxOut, 2);
+      }
+    } catch(_) {}
+    try { if (ctx && typeof ctx.close === 'function') await ctx.close(); } catch(_) {}
+    support.canRouteChannels = sinkApplied;
+    if (deviceId && !supportsAudioElementSinkSelection()) support.canSelectDevice = false;
+    if (!support.canRouteChannels) detected = 2;
+    audioOutputSupport[key] = support;
+    return detected;
+  }
+  async function refreshSelectedAudioChannelCounts() {
+    const inKey = audioDeviceCacheKey(prefAudioIn);
+    if (!audioDeviceChannels.inputs[inKey]) {
+      audioDeviceChannels.inputs[inKey] = await detectInputChannelCount(prefAudioIn);
+    }
+    const outKey = audioDeviceCacheKey(prefAudioOut);
+    if (!audioDeviceChannels.outputs[outKey]) {
+      audioDeviceChannels.outputs[outKey] = await detectOutputChannelCount(prefAudioOut);
+    }
+    const maxIn = getCurrentInputChannelLimit();
+    const maxOut = getCurrentOutputChannelLimit();
+    const outputSupport = getCurrentOutputSupport();
+    const safeIn = clampChannelSelection(prefAudioInCh, 1);
+    const safeOut = clampOutputChannelSelection(prefAudioOutCh, 0);
+    if (safeIn > maxIn) {
+      prefAudioInCh = maxIn;
+      writeStorage(STORAGE_KEY_AIN_CH, prefAudioInCh);
+    }
+    if (!outputSupport.canRouteChannels && safeOut !== 0) {
+      prefAudioOutCh = 0;
+      writeStorage(STORAGE_KEY_AOUT_CH, prefAudioOutCh);
+    } else if (safeOut > maxOut) {
+      prefAudioOutCh = maxOut;
+      writeStorage(STORAGE_KEY_AOUT_CH, prefAudioOutCh);
+    }
+  }
+  async function openUserSettings() {
+    closeSidebar();
+    document.getElementById('user-settings-modal').classList.remove('hidden');
+    document.getElementById('usettings-body').innerHTML = `<p class="usettings-note">${escapeHtml(t('loading'))}</p>`;
+    await reloadAudioDevices({ requestPermission: true, silent: true });
+    renderUserSettings();
+  }
+  function closeUserSettings() { document.getElementById('user-settings-modal').classList.add('hidden'); }
+  function notificationPermissionState() {
+    if (!('Notification' in window)) return 'unsupported';
+    return Notification.permission;
+  }
+  function notificationPermissionLabel() {
+    const state = notificationPermissionState();
+    if (state === 'granted') return t('notif_status_granted');
+    if (state === 'denied') return t('notif_status_denied');
+    if (state === 'default') return t('notif_status_default');
+    return t('notif_status_unsupported');
+  }
+  function enableBrowserNotifications() {
+    if (!('Notification' in window)) {
+      showToast(t('notif_status_unsupported'), 'error');
+      return;
+    }
+    Notification.requestPermission()
+      .then(permission => {
+        if (permission === 'granted') showToast(t('notif_enabled'));
+        renderUserSettings();
+      })
+      .catch(() => showToast(t('notif_status_denied'), 'error'));
+  }
+  async function setPreferredAudioInput(deviceId) {
+    prefAudioIn = deviceId || '';
+    writeStorage(STORAGE_KEY_AIN, prefAudioIn);
+    await refreshSelectedAudioChannelCounts();
+    renderUserSettings();
+    if (inCall) showToast(t('settings_saved'));
+  }
+  async function setPreferredAudioOutput(deviceId) {
+    prefAudioOut = deviceId || '';
+    writeStorage(STORAGE_KEY_AOUT, prefAudioOut);
+    warnedOutputRoutingUnsupported = false;
+    warnedOutputDeviceUnsupported = false;
+    await refreshSelectedAudioChannelCounts();
+    renderUserSettings();
+    if (inCall) await applyOutputPreferencesToRemoteAudio();
+  }
+  function setPreferredInputChannel(value) {
+    prefAudioInCh = clampChannelSelection(value, 1);
+    writeStorage(STORAGE_KEY_AIN_CH, prefAudioInCh);
+    renderUserSettings();
+  }
+  async function setPreferredOutputChannel(value) {
+    const maxOut = getCurrentOutputChannelLimit();
+    const outputSupport = getCurrentOutputSupport();
+    const wanted = clampOutputChannelSelection(value, 0);
+    if (!outputSupport.canRouteChannels) {
+      prefAudioOutCh = 0;
+    } else {
+      prefAudioOutCh = wanted === 0 ? 0 : Math.min(wanted, maxOut);
+    }
+    writeStorage(STORAGE_KEY_AOUT_CH, prefAudioOutCh);
+    renderUserSettings();
+    if (inCall) await applyOutputPreferencesToRemoteAudio();
+  }
+  function renderUserSettings() {
+    const body = document.getElementById('usettings-body');
+    const inOpts  = audioDevices.inputs.map(d =>
+      `<option value="${escapeHtml(d.deviceId)}" ${d.deviceId===prefAudioIn?'selected':''}>${escapeHtml(d.label||(t('us_microphone_name')+d.deviceId.slice(0,6)))}</option>`
+    ).join('');
+    const outOpts = audioDevices.outputs.map(d =>
+      `<option value="${escapeHtml(d.deviceId)}" ${d.deviceId===prefAudioOut?'selected':''}>${escapeHtml(d.label||(t('us_output_name')+d.deviceId.slice(0,6)))}</option>`
+    ).join('');
+    const inputChannels = buildChannelOptions(getCurrentInputChannelLimit(), prefAudioInCh);
+    const outputSupport = getCurrentOutputSupport();
+    const outputLimit = getCurrentOutputChannelLimit();
+    const outputChannels = buildOutputChannelOptions(outputLimit, prefAudioOutCh, outputSupport.canRouteChannels);
+    const notifState = notificationPermissionState();
+    const notifButton = notifState === 'default'
+      ? `<button class="usettings-btn" onclick="enableBrowserNotifications()">${escapeHtml(t('notif_enable'))}</button>`
+      : '';
+    const noAudioDevices = audioDevices.inputs.length === 0 && audioDevices.outputs.length === 0;
+    body.innerHTML = `
+      <div class="usettings-section">${escapeHtml(t('us_sound_section'))}</div>
+      <div class="usettings-row">
+        <label>${escapeHtml(t('us_sound_enable'))}</label>
+        <label class="toggle-wrap">
+          <input type="checkbox" ${soundEnabled?'checked':''} onchange="soundEnabled=this.checked;writeStorage(STORAGE_KEY_SOUND_EN,soundEnabled)">
+          <span class="toggle-track"></span>
+        </label>
+      </div>
+      <div class="usettings-row">
+        <label>${escapeHtml(t('us_sound_type'))}</label>
+        <select class="usettings-select" onchange="soundType=this.value;writeStorage(STORAGE_KEY_SOUND_TY,soundType)">
+          <option value="beep"  ${soundType==='beep'? 'selected':''}>${escapeHtml(t('us_sound_beep'))}</option>
+          <option value="chime" ${soundType==='chime'?'selected':''}>${escapeHtml(t('us_sound_chime'))}</option>
+          <option value="pop"   ${soundType==='pop'?  'selected':''}>${escapeHtml(t('us_sound_pop'))}</option>
+          <option value="ding"  ${soundType==='ding'? 'selected':''}>${escapeHtml(t('us_sound_ding'))}</option>
+        </select>
+      </div>
+      <div class="usettings-row">
+        <label></label>
+        <button class="usettings-btn" onclick="playNotificationSound()">▶ ${escapeHtml(t('us_sound_test'))}</button>
+      </div>
+      <hr class="usettings-divider">
+      <div class="usettings-section">${escapeHtml(t('us_system_section'))}</div>
+      <div class="usettings-row">
+        <label>${escapeHtml(t('us_system_show'))}</label>
+        <label class="toggle-wrap">
+          <input type="checkbox" ${showSystemMessages?'checked':''}
+                 onchange="showSystemMessages=this.checked;writeStorage(STORAGE_KEY_SHOW_SYS,showSystemMessages);if(socket)socket.emit('request_history',{channel:currentChannel});">
+          <span class="toggle-track"></span>
+        </label>
+      </div>
+      <hr class="usettings-divider">
+      <div class="usettings-section">${escapeHtml(t('browser_notifications'))}</div>
+      <div class="usettings-row">
+        <label>${escapeHtml(t('notif_status'))}</label>
+        <span class="usettings-note" style="margin:0;">${escapeHtml(notificationPermissionLabel())}</span>
+      </div>
+      ${notifButton ? `<div class="usettings-row"><label></label>${notifButton}</div>` : ''}
+      <hr class="usettings-divider">
+      <div class="usettings-section">${escapeHtml(t('us_audio_section'))}</div>
+      ${noAudioDevices?`<p class="usettings-note">${escapeHtml(t('us_audio_note'))}<br><button class="usettings-btn" onclick="reloadAudioDevices({ requestPermission: true })">${escapeHtml(t('us_audio_reload'))}</button></p>`:''}
+      <div class="usettings-row">
+        <label>${escapeHtml(t('us_input'))}</label>
+        <select class="usettings-select" onchange="setPreferredAudioInput(this.value)">
+          <option value="">${escapeHtml(t('us_default'))}</option>${inOpts}
+        </select>
+      </div>
+      <div class="usettings-row">
+        <label>${escapeHtml(t('us_input_mode'))}</label>
+        <select class="usettings-select" onchange="setPreferredInputChannel(this.value)">${inputChannels}</select>
+      </div>
+      <div class="usettings-row">
+        <label>${escapeHtml(t('us_output'))}</label>
+        <select class="usettings-select" onchange="setPreferredAudioOutput(this.value)" ${outputSupport.canSelectDevice?'':'disabled'}>
+          <option value="">${escapeHtml(t('us_default'))}</option>${outOpts}
+        </select>
+      </div>
+      <div class="usettings-row">
+        <label>${escapeHtml(t('us_output_mode'))}</label>
+        <select class="usettings-select" onchange="setPreferredOutputChannel(this.value)" ${outputSupport.canRouteChannels?'':'disabled'}>${outputChannels}</select>
+      </div>
+      <p class="usettings-note">${escapeHtml(t('us_output_limit_note', { n: outputLimit }))}</p>
+      ${outputSupport.canSelectDevice ? '' : `<p class="usettings-note">${escapeHtml(t('us_output_device_note_unsupported'))}</p>`}
+      ${outputSupport.canRouteChannels ? '' : `<p class="usettings-note">${escapeHtml(t('us_output_channel_note_unsupported'))}</p>`}`;
+  }
+  async function reloadAudioDevices(opts = {}) {
+    const requestPermission = !!opts.requestPermission;
+    const silent = !!opts.silent;
+    if (!navigator.mediaDevices || typeof navigator.mediaDevices.enumerateDevices !== 'function') {
+      if (!silent) showToast(t('us_audio_note'), 'error');
+      return;
+    }
+    try {
+      if (requestPermission && typeof navigator.mediaDevices.getUserMedia === 'function') {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        stream.getTracks().forEach(t => t.stop());
+      }
+      const devs = await navigator.mediaDevices.enumerateDevices();
+      audioDevices.inputs  = devs.filter(d => d.kind === 'audioinput');
+      audioDevices.outputs = devs.filter(d => d.kind === 'audiooutput');
+      ensurePreferredAudioDevicesExist();
+      await refreshSelectedAudioChannelCounts();
+      renderUserSettings();
+    } catch(e) {
+      if (!silent) {
+        showToast((e && e.message) ? e.message : t('us_audio_note'), 'error');
+      }
+    }
+  }
+
+  // ── Logout ──
+  function logout() {
+    closeSidebar(); if (inCall) leaveCall();
+    if (socket) socket.emit('logout', { token: authToken });
+    authToken = ''; userName = ''; isAdmin = false;
+    removeStorage(STORAGE_KEY_TOKEN); removeStorage(STORAGE_KEY_USER);
+    messagesEl.innerHTML = ''; userListEl.innerHTML = '';
+    headerUser.textContent = ''; updateAdminUI(); showTab('login'); showOverlay();
+  }
+
+  // ── Rename channel ──
+  function startChannelRename(ch, li) {
+    const nameSpan = li.querySelector('.ch-name');
+    const input = document.createElement('input');
+    input.className = 'ch-rename-input'; input.value = ch; input.maxLength = 20; input.autocomplete = 'off';
+    nameSpan.replaceWith(input); input.focus(); input.select();
+    function finish() {
+      const newName = input.value.trim().toLowerCase().replace(/\s+/g,'-');
+      if (newName && newName !== ch && socket) socket.emit('rename_channel', { token: authToken, old: ch, new: newName });
+      const restored = document.createElement('span');
+      restored.className = 'ch-name'; restored.textContent = (newName && newName !== ch) ? newName : ch;
+      input.replaceWith(restored);
+    }
+    input.addEventListener('keydown', e => { if (e.key==='Enter') { e.preventDefault(); input.blur(); } if (e.key==='Escape') { input.value=ch; input.blur(); } });
+    input.addEventListener('blur', finish);
+    input.addEventListener('click', e => e.stopPropagation());
+  }
+
+  // ── Create channel ──
+  function toggleCreateChannel() {
+    const form = document.getElementById('create-channel-form');
+    const inp  = document.getElementById('new-channel-input');
+    form.classList.toggle('visible');
+    if (form.classList.contains('visible')) inp.focus(); else inp.value = '';
+  }
+  document.getElementById('new-channel-input').addEventListener('keydown', e => {
+    if (e.key === 'Enter') {
+      const name = e.target.value.trim().toLowerCase().replace(/\s+/g,'-');
+      if (name && socket) { socket.emit('create_channel', { token: authToken, name }); e.target.value = ''; document.getElementById('create-channel-form').classList.remove('visible'); }
+    }
+    if (e.key === 'Escape') { e.target.value = ''; document.getElementById('create-channel-form').classList.remove('visible'); }
+  });
+
+  // ── Search ──
+  function openSearch() { document.getElementById('search-bar').classList.remove('hidden'); document.getElementById('search-input').focus(); }
+  function closeSearch() {
+    document.getElementById('search-bar').classList.add('hidden');
+    document.getElementById('search-input').value = '';
+    filterMessages('');
+  }
+  function filterMessages(q) {
+    const query = q.trim().toLowerCase();
+    document.querySelectorAll('#messages .msg').forEach(el => {
+      if (!query) { el.classList.remove('search-hidden','search-match'); return; }
+      const match = el.textContent.toLowerCase().includes(query);
+      el.classList.toggle('search-hidden', !match);
+      el.classList.toggle('search-match', match);
+    });
+  }
+  document.getElementById('search-input').addEventListener('input', e => filterMessages(e.target.value));
+
+  // ── Export chat ──
+  function exportChat() {
+    const lines = [`StageChat \u2014 #${currentChannel}`, `Ge\u00ebxporteerd: ${new Date().toLocaleString('nl-NL')}`, ''];
+    document.querySelectorAll('#messages .msg').forEach(el => {
+      if (el.classList.contains('system')) {
+        const t = el.querySelector('.text'); if (t) lines.push(`[systeem] ${t.textContent}`);
+      } else {
+        const ts = el.querySelector('.timestamp');
+        const sn = el.querySelector('.sender');
+        const tx = el.querySelector('.text');
+        if (sn && tx) lines.push(`[${ts ? ts.textContent : ''}] ${sn.textContent}: ${tx.textContent}`);
+      }
+    });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8' }));
+    a.download = `stagechat-${currentChannel}-${Date.now()}.txt`; a.click();
+    URL.revokeObjectURL(a.href);
+  }
+
+  // ── File upload ──
+  document.getElementById('file-input').addEventListener('change', e => {
+    const file = e.target.files[0]; if (!file) return; e.target.value = '';
+    const fd = new FormData(); fd.append('file', file); fd.append('token', authToken);
+    fetch('/upload', { method: 'POST', body: fd })
+      .then(r => r.json())
+      .then(d => {
+        if (d.error) { alert('Upload mislukt: ' + d.error); return; }
+        socket.emit('send_file_message', { channel: currentChannel, filename: d.filename, url: d.url, size: d.size });
+      })
+      .catch(err => alert('Upload mislukt: ' + err.message));
+  });
+
+  function renderFileCard(msg) {
+    const a = document.createElement('a');
+    a.className = 'file-card'; a.href = msg.url; a.target = '_blank'; a.rel = 'noopener noreferrer';
+    const icon = document.createElement('span'); icon.className = 'file-icon'; icon.textContent = getFileIcon(msg.filename);
+    const info = document.createElement('div'); info.className = 'file-info';
+    const nm = document.createElement('div'); nm.className = 'file-name'; nm.textContent = msg.filename;
+    const sz = document.createElement('div'); sz.className = 'file-size'; sz.textContent = formatBytes(msg.size);
+    info.appendChild(nm); info.appendChild(sz); a.appendChild(icon); a.appendChild(info);
+    return a;
+  }
+
+  // ── Countdown ──
+  function countdownTick() {
+    const remaining = Math.max(0, countdownEndTime - Date.now() / 1000);
+    const timeEl = document.getElementById('countdown-time');
+    if (remaining <= 0) { timeEl.textContent = '00:00'; clearInterval(countdownInterval); countdownInterval = null; return; }
+    const h = Math.floor(remaining/3600), m = Math.floor((remaining%3600)/60), s = Math.floor(remaining%60);
+    timeEl.textContent = h > 0
+      ? `${h}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`
+      : `${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+  }
+  function showCountdownBar(data) {
+    countdownEndTime = data.end_time;
+    document.getElementById('countdown-bar').classList.remove('hidden');
+    const labelEl = document.getElementById('countdown-label');
+    labelEl.dataset.customLabel = data.label ? 'true' : '';
+    labelEl.textContent = data.label || t('countdown_label');
+    document.getElementById('countdown-stop-btn').classList.toggle('hidden', !canControlCountdown());
+    if (countdownInterval) clearInterval(countdownInterval);
+    countdownTick();
+    countdownInterval = setInterval(countdownTick, 500);
+  }
+  function hideCountdownBar() {
+    document.getElementById('countdown-bar').classList.add('hidden');
+    if (countdownInterval) { clearInterval(countdownInterval); countdownInterval = null; }
+    countdownEndTime = 0;
+  }
+  function stopCountdown() { if (socket) socket.emit('stop_countdown', { token: authToken }); }
+
+  // ── Browser notifications ──
+  function showNotification(sender, text, channel) {
+    if (!('Notification' in window) || Notification.permission !== 'granted') return;
+    const n = new Notification(`${sender} \u2014 #${channel}`, { body: text });
+    n.onclick = () => { window.focus(); n.close(); };
+    setTimeout(() => n.close(), 5000);
+  }
+  document.addEventListener('visibilitychange', () => updateDocumentTitle());
+
+  // ── Admin modal ──
+  function openAdminModal() {
+    closeSidebar();
+    document.getElementById('admin-modal').classList.remove('hidden');
+    if (socket) socket.emit('get_admin_data', { token: authToken });
+  }
+  function closeAdminModal() { document.getElementById('admin-modal').classList.add('hidden'); }
+
+  function adminTab(tab) {
+    activeAdminTab = tab;
+    const tabs = ['general','projects','users','danger'];
+    document.querySelectorAll('.admin-tab-btn').forEach((btn, i) => btn.classList.toggle('active', tabs[i] === tab));
+    if (adminData) renderAdminTab();
+  }
+
+  function renderAdminTab() {
+    const c = document.getElementById('admin-content');
+    if (!adminData) { c.innerHTML = `<p style="color:var(--text-secondary);font-size:.85rem;">${escapeHtml(t('loading'))}</p>`; return; }
+    if (activeAdminTab === 'general')  renderGeneralTab(c);
+    if (activeAdminTab === 'projects') renderProjectsTab(c);
+    if (activeAdminTab === 'users')    renderUsersTab(c);
+    if (activeAdminTab === 'danger')   renderDangerTab(c);
+  }
+
+  function renderGeneralTab(c) {
+    const cfg = adminData.config || {};
+    const tzList = [
+      ['', 'Systeemtijd (standaard)'], ['UTC', 'UTC'],
+      ['Europe/Amsterdam', 'Amsterdam'], ['Europe/London', 'Londen'],
+      ['Europe/Paris', 'Parijs'], ['Europe/Berlin', 'Berlijn'],
+      ['America/New_York', 'New York'], ['America/Chicago', 'Chicago'],
+      ['America/Los_Angeles', 'Los Angeles'], ['America/Denver', 'Denver'],
+      ['America/Sao_Paulo', 'São Paulo'], ['Asia/Tokyo', 'Tokio'],
+      ['Asia/Shanghai', 'Shanghai'], ['Asia/Dubai', 'Dubai'],
+      ['Australia/Sydney', 'Sydney'],
+    ];
+    const tzOpts = tzList.map(([v,l]) =>
+      `<option value="${escapeHtml(v)}" ${(cfg.timezone||'')==v?'selected':''}>${escapeHtml(l)}</option>`
+    ).join('');
+    const togRow = (id, label, checked) =>
+      `<div class="admin-row"><span class="admin-label">${label}</span>
+       <label class="toggle-wrap"><input type="checkbox" id="${id}" ${checked?'checked':''}><span class="toggle-track"></span></label></div>`;
+
+    c.innerHTML = `
+      <h2>${escapeHtml(t('general_title'))}</h2>
+      <div class="admin-info">
+        ${escapeHtml(t('general_server'))}: <span>${escapeHtml(adminData.server_ip||'')}</span> &nbsp;
+        ${escapeHtml(t('general_uptime'))}: <span>${escapeHtml(formatUptime(adminData.uptime||0))}</span> &nbsp;
+        ${escapeHtml(t('general_project'))}: <span>${escapeHtml(adminData.active_project||'default')}</span>
+      </div>
+      <div class="admin-row">
+        <span class="admin-label">${escapeHtml(t('general_language'))}</span>
+        <select class="admin-input" id="cfg-lang" style="max-width:180px;">
+          <option value="nl" ${(cfg.language||'nl')==='nl'?'selected':''}>Nederlands</option>
+          <option value="en" ${(cfg.language||'nl')==='en'?'selected':''}>English</option>
+          <option value="de" ${(cfg.language||'nl')==='de'?'selected':''}>Deutsch</option>
+          <option value="fr" ${(cfg.language||'nl')==='fr'?'selected':''}>Fran\u00e7ais</option>
+        </select>
+      </div>
+      <div class="admin-row">
+        <span class="admin-label">${escapeHtml(t('general_timezone'))}</span>
+        <select class="admin-input" id="cfg-tz" style="max-width:220px;">${tzOpts}</select>
+      </div>
+      <div class="admin-row">
+        <span class="admin-label">${escapeHtml(t('general_max_mb'))}</span>
+        <input class="admin-input" id="cfg-maxmb" type="number" min="1" max="2000" value="${cfg.max_file_size_mb||50}" style="max-width:100px;">
+      </div>
+      <div class="admin-row">
+        <span class="admin-label">${escapeHtml(t('general_extensions'))}</span>
+        <input class="admin-input" id="cfg-ext" type="text" placeholder="${escapeHtml(t('general_extensions_ph'))}" value="${escapeHtml((cfg.allowed_extensions||[]).join(','))}">
+      </div>
+      ${togRow('cfg-ch-edit', t('general_all_channel_edit'), cfg.allow_all_channel_edit)}
+      ${togRow('cfg-reg', t('general_allow_registration'), cfg.allow_registration !== false)}
+      ${togRow('cfg-countdown', t('general_all_countdown'), cfg.allow_all_countdown)}
+      <div class="admin-row">
+        <span class="admin-label"></span>
+        <button class="admin-btn" onclick="saveSettings()">${escapeHtml(t('save_btn'))}</button>
+      </div>`;
+  }
+
+  function saveSettings() {
+    const maxMb    = parseInt(document.getElementById('cfg-maxmb').value) || 50;
+    const raw      = document.getElementById('cfg-ext').value.trim();
+    const exts     = raw ? raw.split(',').map(e=>e.trim().toLowerCase()).filter(Boolean) : [];
+    const lang     = document.getElementById('cfg-lang').value;
+    const tz       = document.getElementById('cfg-tz').value;
+    const chEdit   = document.getElementById('cfg-ch-edit').checked;
+    const reg      = document.getElementById('cfg-reg').checked;
+    const cntdown  = document.getElementById('cfg-countdown').checked;
+    settingsSavePending = true;
+    socket.emit('update_settings', {
+      token: authToken, max_file_size_mb: maxMb, allowed_extensions: exts,
+      language: lang, timezone: tz,
+      allow_all_channel_edit: chEdit, allow_registration: reg, allow_all_countdown: cntdown,
+    });
+  }
+
+  function renderProjectsTab(c) {
+    const active = adminData.active_project || 'default';
+    const sMap   = {};
+    (adminData.storage||[]).forEach(s => { sMap[s.project] = s; });
+    let html = `<h2>${escapeHtml(t('projects_title'))}</h2>`;
+    (adminData.projects||[]).forEach(p => {
+      const s = sMap[p]||{}, isAct = p===active;
+      html += `<div class="project-item${isAct?' active-project':''}">
+        <span class="project-name">${escapeHtml(p)}</span>
+        ${isAct?`<span class="project-badge">${escapeHtml(t('projects_active'))}</span>`:''}
+        <span class="project-size">${escapeHtml(formatBytes(s.total_size||0))}</span>
+        <div class="project-actions">
+          ${!isAct?`<button class="admin-btn sm" onclick="switchProjectAdmin('${escapeHtml(p)}')">${escapeHtml(t('projects_load'))}</button>`:''}
+          <button class="admin-btn sm secondary" onclick="duplicateProjectAdmin('${escapeHtml(p)}')">${escapeHtml(t('projects_copy'))}</button>
+          ${p!=='default'&&!isAct?`<button class="admin-btn sm danger" onclick="deleteProjectAdmin('${escapeHtml(p)}')">${escapeHtml(t('projects_delete'))}</button>`:''}
+        </div>
+      </div>`;
+    });
+    html += `<h2>${escapeHtml(t('projects_new'))}</h2>
+      <div class="admin-row">
+        <input class="admin-input" id="new-proj" type="text" placeholder="${escapeHtml(t('projects_new_ph'))}" maxlength="40">
+        <button class="admin-btn" onclick="createProjectAdmin()">${escapeHtml(t('projects_create'))}</button>
+      </div>`;
+    c.innerHTML = html;
+  }
+
+  function switchProjectAdmin(name) {
+    confirmAction(t('switch_project_confirm', { name }), () => socket.emit('switch_project', { token: authToken, name }));
+  }
+  function createProjectAdmin() {
+    const name = (document.getElementById('new-proj')||{}).value;
+    if (name) socket.emit('create_project', { token: authToken, name: name.trim().toLowerCase() });
+  }
+  function duplicateProjectAdmin(src) {
+    const dest = prompt(t('copy_project_prompt', { name: src }));
+    if (dest) socket.emit('duplicate_project', { token: authToken, source: src, dest: dest.trim().toLowerCase() });
+  }
+  function deleteProjectAdmin(name) {
+    confirmAction(t('delete_project_confirm', { name }), () => socket.emit('delete_project', { token: authToken, name }));
+  }
+
+  function renderUsersTab(c) {
+    const users = adminData.users||[];
+    let html = `<h2>${escapeHtml(t('users_title'))}</h2>`;
+    if (!users.length) { html += `<p class="admin-info">${escapeHtml(t('users_none'))}</p>`; }
+    users.forEach(u => {
+      html += `<div class="admin-user-item">
+        <span class="admin-user-dot ${u.online?'online':''}"></span>
+        <span class="admin-user-name">${escapeHtml(u.username)}${u.username===userName?escapeHtml(t('users_self')):''}</span>
+        ${u.is_admin?`<span class="admin-badge">${escapeHtml(t('users_admin_badge'))}</span>`:''}
+        <div style="display:flex;gap:4px;margin-left:auto;">
+          ${u.username!==userName?`
+            ${u.is_admin
+              ?`<button class="admin-btn sm secondary" onclick="toggleUserAdmin('${escapeHtml(u.username)}',false)">${escapeHtml(t('users_demote'))}</button>`
+              :`<button class="admin-btn sm secondary" onclick="toggleUserAdmin('${escapeHtml(u.username)}',true)">${escapeHtml(t('users_promote'))}</button>`}
+            <button class="admin-btn sm danger" onclick="deleteUserAdmin('${escapeHtml(u.username)}')">${escapeHtml(t('users_delete'))}</button>
+          `:''}
+        </div>
+      </div>`;
+    });
+    c.innerHTML = html;
+  }
+  function toggleUserAdmin(username, makeAdmin) {
+    socket.emit('set_user_admin', { token: authToken, username, is_admin: makeAdmin });
+    setTimeout(() => socket.emit('get_admin_data', { token: authToken }), 300);
+  }
+  function deleteUserAdmin(username) {
+    confirmAction(t('delete_user_confirm', { username }), () => {
+      socket.emit('delete_user', { token: authToken, username });
+      setTimeout(() => socket.emit('get_admin_data', { token: authToken }), 300);
+    });
+  }
+
+  function renderDangerTab(c) {
+    const proj = adminData.active_project || 'default';
+    c.innerHTML = `
+      <h2>${escapeHtml(t('danger_title'))}</h2>
+      <p class="admin-info">${escapeHtml(t('danger_current_project'))}: <span>${escapeHtml(proj)}</span></p>
+      <div class="danger-item">
+        <div class="danger-item-text"><h3>${escapeHtml(t('danger_clear_chat_title'))}</h3><p>${escapeHtml(t('danger_clear_chat_text'))}</p></div>
+        <button class="admin-btn danger" onclick="confirmAction(t('clear_project_chat_confirm',{name:'${escapeHtml(proj)}'}),()=>socket.emit('clear_project_history',{token:authToken,project:'${escapeHtml(proj)}'}))">${escapeHtml(t('danger_clear_chat_btn'))}</button>
+      </div>
+      <div class="danger-item">
+        <div class="danger-item-text"><h3>${escapeHtml(t('danger_clear_uploads_title'))}</h3><p>${escapeHtml(t('danger_clear_uploads_text'))}</p></div>
+        <button class="admin-btn danger" onclick="confirmAction(t('clear_project_uploads_confirm',{name:'${escapeHtml(proj)}'}),()=>socket.emit('clear_project_uploads',{token:authToken,project:'${escapeHtml(proj)}'}))">${escapeHtml(t('danger_clear_uploads_btn'))}</button>
+      </div>
+      <div class="danger-item">
+        <div class="danger-item-text"><h3>${escapeHtml(t('danger_clear_all_title'))}</h3><p>${escapeHtml(t('danger_clear_all_text'))}</p></div>
+        <button class="admin-btn danger" onclick="confirmAction(t('clear_project_all_confirm',{name:'${escapeHtml(proj)}'}),()=>socket.emit('clear_project_all',{token:authToken,project:'${escapeHtml(proj)}'}))">${escapeHtml(t('danger_clear_all_btn'))}</button>
+      </div>
+      <div class="danger-item" style="margin-top:8px;">
+        <div class="danger-item-text"><h3>${escapeHtml(t('danger_reset_title'))}</h3><p>${escapeHtml(t('danger_reset_text'))}</p></div>
+        <button class="admin-btn danger" onclick="confirmAction(t('full_reset_confirm'),()=>{socket.emit('reset_app',{token:authToken});closeAdminModal();})">${escapeHtml(t('danger_reset_btn'))}</button>
+      </div>`;
+  }
+
+  // ── Socket.IO ──
+  function connectSocket() {
+    if (socket) return socket;
+    if (typeof io !== 'function') { showOverlay(); showAuthError('Socket-client niet geladen. Vernieuw de pagina.'); return null; }
+    socket = io({
+      transports: ['polling', 'websocket'],
+      upgrade: true,
+      reconnection: true,
+      reconnectionAttempts: 8,
+    });
+
+    socket.on('connect', () => { if (authToken) socket.emit('auth', { token: authToken }); else showOverlay(); });
+    socket.on('connect_error', () => { showOverlay(); showAuthError('Verbinding mislukt. Open StageChat via HTTPS en accepteer het certificaat.'); });
+
+    socket.on('auth_ok', data => {
+      authToken = data.token; userName = data.username; isAdmin = data.is_admin || false;
+      writeStorage(STORAGE_KEY_TOKEN, authToken); writeStorage(STORAGE_KEY_USER, userName);
+      if (data.config)  updateAppConfig(data.config);
+      if (data.project) updateProjectDisplay(data.project);
+      hideOverlay(); clearAuthError(); headerUser.textContent = userName;
+      updateInputPlaceholder(); updateAdminUI(); applyLanguage();
+      socket.emit('join', { token: authToken, channel: currentChannel });
+    });
+
+    socket.on('auth_error', data => { authToken = ''; removeStorage(STORAGE_KEY_TOKEN); showOverlay(); showAuthError(data.message); });
+
+    socket.on('channel_list', data => {
+      if (data.topics)  channelTopics = data.topics;
+      if (data.config)  updateAppConfig(data.config);
+      if (data.project) updateProjectDisplay(data.project);
+      if (!data.channels.includes(currentChannel)) {
+        currentChannel = data.channels[0] || 'algemeen';
+        headerChannel.textContent = currentChannel;
+        updateChannelTopic(currentChannel); updateInputPlaceholder();
+      }
+      renderChannelList(data.channels);
+    });
+
+    socket.on('channel_history', data => {
+      if (data.channel !== currentChannel) {
+        currentChannel = data.channel; headerChannel.textContent = data.channel;
+        updateChannelTopic(data.channel); updateInputPlaceholder();
+        document.querySelectorAll('.channel-item').forEach(el => el.classList.toggle('active', el.dataset.channel === data.channel));
+      }
+      if (data.topic !== undefined) { channelTopics[data.channel] = data.topic; updateChannelTopic(data.channel); }
+      messagesEl.innerHTML = '';
+      data.messages.forEach(msg => { if (shouldRenderMessage(msg)) renderMessage(msg, false); });
+      scrollToBottom();
+    });
+
+    socket.on('channel_cleared', data => { if (data.channel === currentChannel || data.channel === '__all__') messagesEl.innerHTML = ''; });
+
+    socket.on('channel_topic_updated', data => {
+      channelTopics[data.channel] = data.topic;
+      if (data.channel === currentChannel) updateChannelTopic(data.channel);
+    });
+
+    socket.on('users_list', data => renderUsersAdmin(data.users));
+
+    socket.on('user_deleted', () => {
+      if (!document.getElementById('users-modal').classList.contains('hidden')) socket.emit('get_users', {});
+    });
+
+    socket.on('kicked', data => {
+      authToken=''; userName=''; isAdmin=false;
+      removeStorage(STORAGE_KEY_TOKEN); removeStorage(STORAGE_KEY_USER);
+      messagesEl.innerHTML=''; userListEl.innerHTML=''; headerUser.textContent='';
+      closeUsersModal(); closeAdminModal(); updateAdminUI(); showTab('login'); showOverlay();
+      showAuthError(data.message||'Je account is verwijderd');
+    });
+
+    socket.on('app_reset', data => {
+      Object.keys(unread).forEach(k=>delete unread[k]);
+      data.channels.forEach(ch=>{unread[ch]=0;});
+      currentChannel='algemeen'; headerChannel.textContent='algemeen'; channelTopics={};
+      updateChannelTopic('algemeen'); updateInputPlaceholder(); messagesEl.innerHTML='';
+      updateDocumentTitle();
+      renderChannelList(data.channels); socket.emit('request_history',{channel:'algemeen'});
+    });
+
+    socket.on('channel_renamed', data => {
+      if (currentChannel===data.old) { currentChannel=data.new; headerChannel.textContent=data.new; updateInputPlaceholder(); }
+      if (data.old in channelTopics) { channelTopics[data.new]=channelTopics[data.old]; delete channelTopics[data.old]; }
+      if (data.old in unread) { unread[data.new]=unread[data.old]||0; delete unread[data.old]; }
+      updateDocumentTitle();
+    });
+
+    socket.on('channel_deleted', data => {
+      if (data.channel in unread) delete unread[data.channel];
+      if (data.channel===currentChannel) {
+        currentChannel=data.fallback; headerChannel.textContent=data.fallback;
+        updateChannelTopic(data.fallback); updateInputPlaceholder(); messagesEl.innerHTML='';
+        socket.emit('request_history',{channel:data.fallback});
+      }
+      updateDocumentTitle();
+    });
+
+    socket.on('new_message', msg => {
+      const isIncoming = (msg.type === 'user' || msg.type === 'file') && msg.sender !== userName;
+      const shouldCountUnread = isIncoming && (msg.channel !== currentChannel || document.hidden);
+      if (msg.channel === currentChannel) {
+        if (shouldRenderMessage(msg)) {
+          renderMessage(msg, true);
+          scrollToBottom();
+        }
+      }
+      if (isIncoming) playNotificationSound();
+      if (shouldCountUnread) {
+        unread[msg.channel] = (unread[msg.channel] || 0) + 1;
+        updateBadge(msg.channel);
+      }
+      if (isIncoming && document.hidden) {
+        showNotification(msg.sender, msg.type==='file'?`\u{1f4ce} ${msg.filename}`:msg.text, msg.channel);
+      }
+    });
+
+    socket.on('user_list', data => {
+      userListEl.innerHTML='';
+      data.users.forEach(name => { const li=document.createElement('li'); li.textContent=name; userListEl.appendChild(li); });
+    });
+
+    socket.on('admin_data', data => {
+      adminData=data;
+      channelTopics=data.topics||channelTopics;
+      renderAdminTab();
+    });
+
+    socket.on('storage_info', data => {
+      if (adminData) { adminData.storage=data.storage; if (activeAdminTab==='projects'||activeAdminTab==='danger') renderAdminTab(); }
+    });
+
+    socket.on('project_created', data => { if (adminData) { adminData.projects=data.projects; if (activeAdminTab==='projects') renderAdminTab(); } });
+    socket.on('project_deleted', data => { if (adminData) { adminData.projects=data.projects; if (activeAdminTab==='projects') renderAdminTab(); } });
+    socket.on('project_switched', () => window.location.reload());
+
+    socket.on('settings_updated', data => {
+      if (adminData && data.config) adminData.config = data.config;
+      if (data.client_config) updateAppConfig(data.client_config);
+      if (settingsSavePending) {
+        showToast(t('settings_saved'));
+        settingsSavePending = false;
+      }
+    });
+
+    socket.on('user_admin_updated', data => {
+      if (data.username===userName) { isAdmin=data.is_admin; updateAdminUI(); }
+      if (adminData) {
+        const u=(adminData.users||[]).find(u=>u.username===data.username);
+        if (u) u.is_admin=data.is_admin;
+        if (activeAdminTab==='users') renderAdminTab();
+      }
+    });
+
+    socket.on('countdown_started', data => showCountdownBar(data));
+    socket.on('countdown_expired', () => { hideCountdownBar(); playNotificationSound(); });
+    socket.on('countdown_stopped', () => hideCountdownBar());
+    socket.on('error', data => {
+      if (data.message) {
+        console.warn('[server]', data.message);
+        showToast(data.message, 'error');
+      }
+      if (settingsSavePending) settingsSavePending = false;
+    });
+
+    // Call signaling
+    socket.on('call_joined', async data => { for (const peer of data.peers) await sendOffer(peer.sid); });
+    socket.on('call_state', data => { if (data.channel===currentChannel) updateCallBar(data.participants); });
+    socket.on('call_offer', async data => {
+      if (!inCall) return;
+      const pc=createPeerConn(data.from);
+      await pc.setRemoteDescription(new RTCSessionDescription(data.sdp));
+      const answer=await pc.createAnswer(); await pc.setLocalDescription(answer);
+      socket.emit('call_answer',{target:data.from,sdp:pc.localDescription});
+    });
+    socket.on('call_answer', async data => { const pc=peerConns[data.from]; if (pc) await pc.setRemoteDescription(new RTCSessionDescription(data.sdp)); });
+    socket.on('call_ice', async data => {
+      const pc=peerConns[data.from];
+      if (pc&&data.candidate) { try { await pc.addIceCandidate(new RTCIceCandidate(data.candidate)); } catch(_){} }
+    });
+
+    return socket;
+  }
+
+  // ── Sending messages ──
+  function sendMessage() {
+    const text=msgInput.value.trim(); if (!text||!socket) return;
+    socket.emit('send_message',{channel:currentChannel,text}); msgInput.value='';
+  }
+  sendBtn.addEventListener('click', sendMessage);
+  msgInput.addEventListener('keydown', e => { if (e.key==='Enter') sendMessage(); });
+
+  // ── Render message ──
+  function renderMessage(msg, isNew) {
+    const div=document.createElement('div');
+    if (msg.type==='system') {
+      div.className='msg system';
+      const t=document.createElement('span'); t.className='text'; t.textContent=msg.text; div.appendChild(t);
+    } else if (msg.type==='file') {
+      const isOwn=msg.sender===userName;
+      div.className='msg'+(isOwn?' own':'')+(isNew?' new-msg':'');
+      const ts=document.createElement('span'); ts.className='timestamp'; ts.textContent=msg.timestamp;
+      const body=document.createElement('div'); body.className='body';
+      const sn=document.createElement('div'); sn.className='sender'; sn.textContent=isOwn?t('sender_you'):msg.sender;
+      body.appendChild(sn); body.appendChild(renderFileCard(msg));
+      div.appendChild(ts); div.appendChild(body);
+    } else {
+      const isOwn=msg.sender===userName;
+      div.className='msg'+(isOwn?' own':'')+(isNew?' new-msg':'');
+      const ts=document.createElement('span'); ts.className='timestamp'; ts.textContent=msg.timestamp;
+      const body=document.createElement('div'); body.className='body';
+      const sn=document.createElement('div'); sn.className='sender'; sn.textContent=isOwn?t('sender_you'):msg.sender;
+      const tx=document.createElement('div'); tx.className='text';
+      tx.appendChild(parseMentions(msg.text, userName));
+      body.appendChild(sn); body.appendChild(tx); div.appendChild(ts); div.appendChild(body);
+    }
+    messagesEl.appendChild(div);
+  }
+
+  function scrollToBottom() { messagesEl.scrollTop=messagesEl.scrollHeight; }
+
+  // ── WebRTC ──
+  const ICE_CONFIG={iceServers:[]};
+  let inCall=false, localStream=null, isMuted=false;
+  const peerConns={};
+  function stopLocalAudioPipeline() {
+    if (localStream && localStream !== localCaptureStream) {
+      localStream.getTracks().forEach(t => t.stop());
+    }
+    if (localCaptureStream) {
+      localCaptureStream.getTracks().forEach(t => t.stop());
+    }
+    localStream = null;
+    localCaptureStream = null;
+    if (localInputRoute) {
+      try { localInputRoute.source.disconnect(); } catch(_) {}
+      try { localInputRoute.splitter.disconnect(); } catch(_) {}
+      try { localInputRoute.destination.disconnect(); } catch(_) {}
+      localInputRoute = null;
+    }
+    if (localInputCtx && typeof localInputCtx.close === 'function') {
+      localInputCtx.close().catch(() => {});
+    }
+    localInputCtx = null;
+  }
+  async function buildSelectedInputStream(captureStream) {
+    const track = captureStream.getAudioTracks()[0];
+    if (!track) return { stream: captureStream, channels: 1 };
+    const availableChannels = extractTrackChannelCount(track, 2);
+    audioDeviceChannels.inputs[audioDeviceCacheKey(prefAudioIn)] = availableChannels;
+    const wantedChannel = Math.min(clampChannelSelection(prefAudioInCh, 1), availableChannels);
+    if (wantedChannel !== prefAudioInCh) {
+      prefAudioInCh = wantedChannel;
+      writeStorage(STORAGE_KEY_AIN_CH, prefAudioInCh);
+    }
+    if (availableChannels <= 1) {
+      return { stream: captureStream, channels: availableChannels };
+    }
+    const AudioCtor = window.AudioContext || window.webkitAudioContext;
+    if (!AudioCtor) return { stream: captureStream, channels: availableChannels };
+    let ctx = null;
+    try {
+      ctx = new AudioCtor();
+      if (ctx.state === 'suspended') await ctx.resume().catch(() => {});
+      const source = ctx.createMediaStreamSource(captureStream);
+      const splitter = ctx.createChannelSplitter(Math.max(availableChannels, wantedChannel));
+      const destination = ctx.createMediaStreamDestination();
+      source.connect(splitter);
+      splitter.connect(destination, wantedChannel - 1, 0);
+      localInputCtx = ctx;
+      localInputRoute = { source, splitter, destination };
+      return { stream: destination.stream, channels: availableChannels };
+    } catch(_) {
+      if (ctx && typeof ctx.close === 'function') {
+        try { await ctx.close(); } catch(_) {}
+      }
+      localInputCtx = null;
+      localInputRoute = null;
+      return { stream: captureStream, channels: availableChannels };
+    }
+  }
+  function clearRemoteRoute(sid) {
+    const route = remoteAudioRoutes[sid];
+    if (!route) return;
+    try { route.source.disconnect(); } catch(_) {}
+    try { route.splitter.disconnect(); } catch(_) {}
+    try { route.merger.disconnect(); } catch(_) {}
+    try { route.router.disconnect(); } catch(_) {}
+    delete remoteAudioRoutes[sid];
+  }
+  async function clearAllRemoteRoutes() {
+    Object.keys(remoteAudioRoutes).forEach(clearRemoteRoute);
+    if (remoteOutputCtx && typeof remoteOutputCtx.close === 'function') {
+      try { await remoteOutputCtx.close(); } catch(_) {}
+    }
+    remoteOutputCtx = null;
+    remoteOutputSinkId = '';
+  }
+  async function createRemoteOutputContext() {
+    const AudioCtor = window.AudioContext || window.webkitAudioContext;
+    if (!AudioCtor) return null;
+    let ctx = null;
+    let sinkId = '';
+    if (prefAudioOut) {
+      try {
+        ctx = new AudioCtor({ sinkId: prefAudioOut });
+        sinkId = prefAudioOut;
+      } catch(_) {}
+    }
+    if (!ctx) {
+      ctx = new AudioCtor();
+      sinkId = '';
+    }
+    if (ctx.state === 'suspended') {
+      await ctx.resume().catch(() => {});
+    }
+    if (prefAudioOut && typeof ctx.setSinkId === 'function' && sinkId !== prefAudioOut) {
+      try {
+        await ctx.setSinkId(prefAudioOut);
+        sinkId = prefAudioOut;
+      } catch(_) {}
+    }
+    remoteOutputCtx = ctx;
+    remoteOutputSinkId = sinkId;
+    return ctx;
+  }
+  async function ensureRemoteOutputContext() {
+    const AudioCtor = window.AudioContext || window.webkitAudioContext;
+    if (!AudioCtor) return null;
+    if (!remoteOutputCtx || remoteOutputCtx.state === 'closed') {
+      return createRemoteOutputContext();
+    }
+    if (prefAudioOut && remoteOutputSinkId !== prefAudioOut) {
+      if (typeof remoteOutputCtx.setSinkId === 'function') {
+        try {
+          await remoteOutputCtx.setSinkId(prefAudioOut);
+          remoteOutputSinkId = prefAudioOut;
+        } catch(_) {}
+      }
+      if (remoteOutputSinkId !== prefAudioOut) {
+        try { await remoteOutputCtx.close(); } catch(_) {}
+        remoteOutputCtx = null;
+        remoteOutputSinkId = '';
+        return createRemoteOutputContext();
+      }
+    }
+    if (!prefAudioOut) {
+      remoteOutputSinkId = '';
+    }
+    if (remoteOutputCtx.state === 'suspended') {
+      await remoteOutputCtx.resume().catch(() => {});
+    }
+    return remoteOutputCtx;
+  }
+  async function routeRemoteStreamToOutput(sid, stream) {
+    if (!stream) return;
+    const outputSupport = getCurrentOutputSupport();
+    let audio = document.getElementById(`audio-${sid}`);
+    if (!audio) {
+      audio = document.createElement('audio');
+      audio.id = `audio-${sid}`;
+      audio.className = 'remote-audio';
+      audio.autoplay = true;
+      audio.playsInline = true;
+      document.body.appendChild(audio);
+    }
+    audio.srcObject = stream;
+    if (prefAudioOut && outputSupport.canSelectDevice && typeof audio.setSinkId === 'function') {
+      audio.setSinkId(prefAudioOut).catch(() => {});
+    } else if (prefAudioOut && !outputSupport.canSelectDevice && !warnedOutputDeviceUnsupported) {
+      showToast(t('us_output_device_note_unsupported'), 'error');
+      warnedOutputDeviceUnsupported = true;
+    }
+    clearRemoteRoute(sid);
+    if (prefAudioOutCh === 0 || !outputSupport.canRouteChannels) {
+      if (prefAudioOutCh !== 0 && !outputSupport.canRouteChannels && !warnedOutputRoutingUnsupported) {
+        showToast(t('us_output_channel_note_unsupported'), 'error');
+        warnedOutputRoutingUnsupported = true;
+      }
+      audio.muted = false;
+      try { await audio.play(); } catch(_) {}
+      return;
+    }
+    const ctx = await ensureRemoteOutputContext();
+    if (!ctx) {
+      audio.muted = false;
+      try { await audio.play(); } catch(_) {}
+      return;
+    }
+    if (prefAudioOut && remoteOutputSinkId !== prefAudioOut) {
+      audio.muted = false;
+      try { await audio.play(); } catch(_) {}
+      return;
+    }
+    try {
+      const routeTo = Math.max(0, clampOutputChannelSelection(prefAudioOutCh, 1) - 1);
+      const outputs = Math.max(2, routeTo + 1);
+      try {
+        ctx.destination.channelInterpretation = 'discrete';
+        ctx.destination.channelCountMode = 'explicit';
+        ctx.destination.channelCount = outputs;
+      } catch(_) {}
+      const source = ctx.createMediaStreamSource(stream);
+      const splitter = ctx.createChannelSplitter(outputs);
+      const merger = ctx.createChannelMerger(outputs);
+      const router = ctx.createGain();
+      try {
+        router.channelInterpretation = 'discrete';
+        router.channelCountMode = 'explicit';
+        router.channelCount = outputs;
+      } catch(_) {}
+      try {
+        merger.channelInterpretation = 'discrete';
+        merger.channelCountMode = 'explicit';
+        merger.channelCount = outputs;
+      } catch(_) {}
+      source.connect(splitter);
+      splitter.connect(merger, 0, routeTo);
+      merger.connect(router);
+      router.connect(ctx.destination);
+      remoteAudioRoutes[sid] = { source, splitter, merger, router };
+      audio.muted = true;
+      try { await audio.play(); } catch(_) {}
+    } catch(_) {
+      clearRemoteRoute(sid);
+      audio.muted = false;
+      try { await audio.play(); } catch(_) {}
+    }
+  }
+  async function applyOutputPreferencesToRemoteAudio() {
+    const ids = Object.keys(remoteStreams);
+    if (!ids.length) return;
+    const outputSupport = getCurrentOutputSupport();
+    if (prefAudioOutCh === 0 || !outputSupport.canRouteChannels) await clearAllRemoteRoutes();
+    for (const sid of ids) {
+      await routeRemoteStreamToOutput(sid, remoteStreams[sid]);
+    }
+  }
+
+  async function toggleCall() { if (inCall) await leaveCall(); else await joinCall(); }
+  async function joinCall() {
+    const audioConstraints = prefAudioIn
+      ? { deviceId: { exact: prefAudioIn }, channelCount: { ideal: MAX_AUDIO_CHANNELS } }
+      : { channelCount: { ideal: MAX_AUDIO_CHANNELS } };
+    try {
+      localCaptureStream = await navigator.mediaDevices.getUserMedia({ video: false, audio: audioConstraints });
+      const selected = await buildSelectedInputStream(localCaptureStream);
+      localStream = selected.stream;
+    } catch(e) {
+      showToast((e && e.message) ? e.message : t('us_audio_note'), 'error');
+      stopLocalAudioPipeline();
+      return;
+    }
+    // Enumerate devices for labels now that we have permission
+    try {
+      const devs = await navigator.mediaDevices.enumerateDevices();
+      audioDevices.inputs  = devs.filter(d => d.kind==='audioinput');
+      audioDevices.outputs = devs.filter(d => d.kind==='audiooutput');
+      ensurePreferredAudioDevicesExist();
+      await refreshSelectedAudioChannelCounts();
+    } catch(_) {}
+    inCall=true; isMuted=false; updateCallBtn(); socket.emit('call_join',{});
+  }
+  async function leaveCall() {
+    Object.values(peerConns).forEach(pc=>pc.close());
+    Object.keys(peerConns).forEach(k=>delete peerConns[k]);
+    stopLocalAudioPipeline();
+    Object.keys(remoteStreams).forEach(k => { delete remoteStreams[k]; clearRemoteRoute(k); });
+    await clearAllRemoteRoutes();
+    document.querySelectorAll('.remote-audio').forEach(el=>el.remove());
+    inCall=false; isMuted=false; updateCallBtn(); socket.emit('call_leave',{});
+  }
+  function toggleMute() {
+    if (!localStream) return; isMuted=!isMuted;
+    localStream.getAudioTracks().forEach(t=>{t.enabled=!isMuted;});
+    const btn=document.getElementById('mute-btn');
+    btn.textContent=isMuted?t('mute_btn_off'):t('mute_btn'); btn.classList.toggle('muted',isMuted);
+  }
+  function updateCallBtn() {
+    const btn=document.getElementById('call-btn');
+    btn.textContent=inCall?t('call_btn_hangup'):t('call_btn_idle'); btn.classList.toggle('in-call',inCall);
+    document.getElementById('call-controls').classList.toggle('hidden',!inCall);
+  }
+  function updateCallBar(participants) {
+    const bar=document.getElementById('call-bar');
+    if (!participants||!participants.length) { bar.classList.add('hidden'); return; }
+    bar.classList.remove('hidden');
+    document.getElementById('call-names').textContent=participants.map(p=>p.name).join(', ');
+    document.getElementById('call-controls').classList.toggle('hidden',!inCall);
+  }
+  function createPeerConn(sid) {
+    const pc=new RTCPeerConnection(ICE_CONFIG); peerConns[sid]=pc;
+    if (localStream) localStream.getAudioTracks().forEach(t=>pc.addTrack(t,localStream));
+    pc.onicecandidate=e=>{if(e.candidate)socket.emit('call_ice',{target:sid,candidate:e.candidate});};
+    pc.ontrack=async e=>{
+      const remoteStream = e.streams && e.streams[0];
+      if (!remoteStream) return;
+      remoteStreams[sid] = remoteStream;
+      await routeRemoteStreamToOutput(sid, remoteStream);
+    };
+    pc.onconnectionstatechange=()=>{
+      if (['disconnected','failed','closed'].includes(pc.connectionState)) {
+        pc.close(); delete peerConns[sid];
+        delete remoteStreams[sid];
+        clearRemoteRoute(sid);
+        const a=document.getElementById(`audio-${sid}`); if(a) a.remove();
+      }
+    };
+    return pc;
+  }
+  async function sendOffer(sid) {
+    const pc=createPeerConn(sid);
+    const offer=await pc.createOffer(); await pc.setLocalDescription(offer);
+    socket.emit('call_offer',{target:sid,sdp:pc.localDescription});
+  }
+
+  // ── Init ──
+  renderChannelList(INITIAL_CHANNELS);
+  headerChannel.textContent=currentChannel;
+  if (userName) headerUser.textContent=userName;
+  applyLanguage();
+  updateDocumentTitle();
+  if (!authToken) showOverlay();
+  connectSocket();
+</script>
+</body>
+</html>

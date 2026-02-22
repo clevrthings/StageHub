@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Virtual environments
+.venv/
+venv/
+
+# OS / editor
+.DS_Store
+
+# Runtime / local artifacts
+cert.pem
+key.pem
+projects/
+
+# Logs
+*.log
