@@ -373,9 +373,9 @@ main() {
   have_cmd systemctl || die "systemctl not found. This installer requires systemd."
   ensure_packages
 
-  local backup_config
+  local backup_config=""
   backup_config="$(mktemp)"
-  trap 'rm -f "${backup_config}"' EXIT
+  trap 'if [ -n "${backup_config:-}" ]; then rm -f "${backup_config}"; fi' EXIT
 
   if [ -f "${INSTALL_DIR}/config.json" ]; then
     cp "${INSTALL_DIR}/config.json" "${backup_config}"
