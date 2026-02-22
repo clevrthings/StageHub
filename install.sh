@@ -15,6 +15,7 @@ SYSTEMD_UNIT="/etc/systemd/system/${SERVICE_NAME}.service"
 CLI_BIN="/usr/local/bin/stagechat"
 DEFAULT_SERVICE_USER="stagechat"
 INTERACTIVE_INPUT="/dev/tty"
+INSTALL_MODE="new"
 
 
 log() {
@@ -39,13 +40,13 @@ have_cmd() {
 prompt_read() {
   local var_name="$1"
   local prompt="$2"
-  local reply=""
+  local input_value=""
   if [ -r "${INTERACTIVE_INPUT}" ]; then
-    read -r -p "${prompt}" reply < "${INTERACTIVE_INPUT}" || true
+    read -r -p "${prompt}" input_value < "${INTERACTIVE_INPUT}" || true
   else
-    read -r -p "${prompt}" reply || true
+    read -r -p "${prompt}" input_value || true
   fi
-  printf -v "${var_name}" '%s' "${reply}"
+  printf -v "${var_name}" '%s' "${input_value}"
 }
 
 coerce_port() {
@@ -105,6 +106,7 @@ EOF
       prompt_read mode "Select [1/2/3]: "
       case "${mode:-}" in
         1)
+          INSTALL_MODE="update"
           update_repo
           return
           ;;
@@ -112,6 +114,7 @@ EOF
           prompt_read confirm "This removes ${INSTALL_DIR}. Continue? [y/N]: "
           case "${confirm:-n}" in
             y|Y|yes|YES)
+              INSTALL_MODE="clean"
               rm -rf "${INSTALL_DIR}"
               clone_repo
               return
@@ -134,6 +137,7 @@ EOF
     prompt_read confirm "Delete and reinstall into ${INSTALL_DIR}? [y/N]: "
     case "${confirm:-n}" in
       y|Y|yes|YES)
+        INSTALL_MODE="clean"
         rm -rf "${INSTALL_DIR}"
         ;;
       *)
@@ -143,6 +147,7 @@ EOF
   fi
 
   if [ ! -d "${INSTALL_DIR}" ]; then
+    INSTALL_MODE="new"
     clone_repo
   fi
 }
@@ -402,6 +407,10 @@ main() {
   fi
 
   choose_install_mode
+
+  if [ "${INSTALL_MODE}" = "clean" ]; then
+    write_config_file "${backup_config}" "default" "80" "false"
+  fi
 
   local service_user
   service_user="$(choose_service_user)"
