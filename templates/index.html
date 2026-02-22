@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>StageChat v{{ app_version }}</title>
+<title>StageChat</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 <script src="/static/js/socket.io-4.7.5.min.js"></script>
@@ -778,7 +778,7 @@
 <!-- Auth overlay -->
 <div id="overlay">
   <div class="overlay-card">
-    <div class="logo">⚡ StageChat v{{ app_version }}</div>
+    <div class="logo">⚡ StageChat</div>
     <div class="auth-tabs">
       <button class="tab-btn active" id="tab-login"    onclick="showTab('login')">Inloggen</button>
       <button class="tab-btn"        id="tab-register" onclick="showTab('register')">Registreren</button>
@@ -1049,7 +1049,7 @@
       projects_copy: 'Kopieer',
       projects_delete: 'Verwijder',
       projects_new: 'Nieuw project',
-      projects_new_ph: 'naam (spaties worden -)',
+      projects_new_ph: 'naam (A-Z/a-z/0-9, spaties worden -)',
       projects_create: 'Aanmaken',
       users_title: 'Gebruikers',
       users_none: 'Geen gebruikers.',
@@ -1193,7 +1193,7 @@
       projects_copy: 'Copy',
       projects_delete: 'Delete',
       projects_new: 'New project',
-      projects_new_ph: 'name (spaces become -)',
+      projects_new_ph: 'name (A-Z/a-z/0-9, spaces become -)',
       projects_create: 'Create',
       users_title: 'Users',
       users_none: 'No users.',
@@ -1337,7 +1337,7 @@
       projects_copy: 'Kopieren',
       projects_delete: 'Löschen',
       projects_new: 'Neues Projekt',
-      projects_new_ph: 'name (Leerzeichen werden -)',
+      projects_new_ph: 'name (A-Z/a-z/0-9, Leerzeichen werden -)',
       projects_create: 'Erstellen',
       users_title: 'Benutzer',
       users_none: 'Keine Benutzer.',
@@ -1481,7 +1481,7 @@
       projects_copy: 'Copier',
       projects_delete: 'Supprimer',
       projects_new: 'Nouveau projet',
-      projects_new_ph: 'nom (les espaces deviennent -)',
+      projects_new_ph: 'nom (A-Z/a-z/0-9, les espaces deviennent -)',
       projects_create: 'Créer',
       users_title: 'Utilisateurs',
       users_none: 'Aucun utilisateur.',
@@ -1551,15 +1551,14 @@
   function normalizeProjectSlug(name) {
     return String(name || '')
       .trim()
-      .toLowerCase()
       .replace(/\s+/g, '-')
-      .replace(/[^a-z0-9_-]/g, '-')
+      .replace(/[^A-Za-z0-9_-]/g, '-')
       .replace(/-+/g, '-')
       .replace(/^[-_]+|[-_]+$/g, '');
   }
 
   function baseTitle() {
-    const appName = `StageChat v${APP_VERSION}`;
+    const appName = 'StageChat';
     const projectLabel = displayProjectName(currentProject);
     return currentProject && currentProject !== 'default'
       ? `${appName} \u2014 ${projectLabel}`
@@ -2541,11 +2540,11 @@
     c.innerHTML = `
       <h2>${escapeHtml(t('general_title'))}</h2>
       <div class="admin-info">
-        ${escapeHtml(t('general_server'))}: <span>${escapeHtml(adminData.server_ip||'')}</span> &nbsp;
-        ${escapeHtml(t('general_hostname'))}: <span>${escapeHtml(hostnames)}</span> &nbsp;
-        ${escapeHtml(t('general_uptime'))}: <span>${escapeHtml(formatUptime(adminData.uptime||0))}</span> &nbsp;
-        ${escapeHtml(t('general_project'))}: <span>${escapeHtml(activeProjectLabel)}</span> &nbsp;
-        ${escapeHtml(t('general_version'))}: <span>${escapeHtml(appVersionLabel)}</span>
+        <div>${escapeHtml(t('general_server'))}: <span>${escapeHtml(adminData.server_ip||'')}</span></div>
+        <div>${escapeHtml(t('general_hostname'))}: <span>${escapeHtml(hostnames)}</span></div>
+        <div>${escapeHtml(t('general_uptime'))}: <span>${escapeHtml(formatUptime(adminData.uptime||0))}</span></div>
+        <div>${escapeHtml(t('general_project'))}: <span>${escapeHtml(activeProjectLabel)}</span></div>
+        <div>${escapeHtml(t('general_version'))}: <span>${escapeHtml(appVersionLabel)}</span></div>
       </div>
       <div class="admin-row">
         <span class="admin-label">${escapeHtml(t('general_language'))}</span>

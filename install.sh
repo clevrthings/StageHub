@@ -17,7 +17,8 @@ CLI_BIN="/usr/local/bin/stagechat"
 DEFAULT_SERVICE_USER="stagechat"
 INTERACTIVE_INPUT="/dev/tty"
 INSTALL_MODE="new"
-INSTALLER_VERSION="2026-02-22-5"
+INSTALLER_VERSION="2026-02-22-6"
+STAGECHAT_VERSION="0.1.1"
 
 
 log() {
@@ -436,6 +437,7 @@ main() {
   require_root
   refresh_installer_if_needed "$@"
   log "Installer version: ${INSTALLER_VERSION}"
+  log "StageChat version: ${STAGECHAT_VERSION}"
   have_cmd systemctl || die "systemctl not found. This installer requires systemd."
   if [ ! -r "${INTERACTIVE_INPUT}" ]; then
     log "Geen interactieve terminal gedetecteerd; standaardwaarden worden gebruikt."
@@ -543,6 +545,7 @@ PY
     log "  ${https_host_local_url}"
   fi
   cleanup_installer_cache
+  log "StageChat version used: ${STAGECHAT_VERSION}"
   log "Installer version used: ${INSTALLER_VERSION}"
 }
 

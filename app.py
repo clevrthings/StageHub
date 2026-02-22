@@ -35,7 +35,7 @@ CONFIG_FILE   = os.path.join(BASE_DIR, 'config.json')
 CERT_FILE     = os.path.join(BASE_DIR, 'cert.pem')
 KEY_FILE      = os.path.join(BASE_DIR, 'key.pem')
 MAX_HISTORY   = 200
-APP_VERSION   = '0.1.0-beta'
+APP_VERSION   = '0.1.1'
 
 DEFAULT_CHANNELS = ['algemeen', 'foh', 'podium', 'licht']
 
@@ -448,9 +448,9 @@ def _project_names() -> list:
 
 
 def _normalize_project_name(name: str) -> str:
-    normalized = str(name or '').strip().lower()
+    normalized = str(name or '').strip()
     normalized = re.sub(r'\s+', '-', normalized)
-    normalized = re.sub(r'[^a-z0-9_\-]', '-', normalized)
+    normalized = re.sub(r'[^A-Za-z0-9_\-]', '-', normalized)
     normalized = re.sub(r'-{2,}', '-', normalized)
     return normalized.strip('-_')
 
@@ -463,10 +463,11 @@ def _resolve_project_name(name: str) -> str:
     if candidate in projects:
         return candidate
     normalized = _normalize_project_name(candidate)
+    normalized_key = normalized.casefold()
     if normalized in projects:
         return normalized
     for proj in projects:
-        if _normalize_project_name(proj) == normalized:
+        if _normalize_project_name(proj).casefold() == normalized_key:
             return proj
     return ''
 
@@ -1009,8 +1010,10 @@ def on_create_project(data):
     if not require_admin(data.get('token', '')):
         emit('error', {'message': 'Geen beheerdersrechten'}); return
     name = _normalize_project_name(data.get('name', ''))
-    if not re.match(r'^[a-z0-9_\-]{2,40}$', name):
-        emit('error', {'message': 'Ongeldige projectnaam (2-40 tekens, a-z, 0-9, _, -, spaties worden -)'}); return
+    if not re.match(r'^[A-Za-z0-9_\-]{2,40}$', name):
+        emit('error', {'message': 'Ongeldige projectnaam (2-40 tekens, A-Z/a-z, 0-9, _, -, spaties worden -)'}); return
+    if _resolve_project_name(name):
+        emit('error', {'message': 'Project bestaat al'}); return
     pdir = os.path.join(PROJECTS_DIR, name)
     if os.path.exists(pdir): emit('error', {'message': 'Project bestaat al'}); return
     os.makedirs(os.path.join(pdir, 'uploads'), exist_ok=True)
@@ -1029,9 +1032,10 @@ def on_duplicate_project(data):
         emit('error', {'message': 'Geen beheerdersrechten'}); return
     source = _resolve_project_name(data.get('source', ''))
     dest = _normalize_project_name(data.get('dest', ''))
-    if not re.match(r'^[a-z0-9_\-]{2,40}$', dest):
+    if not re.match(r'^[A-Za-z0-9_\-]{2,40}$', dest):
         emit('error', {'message': 'Ongeldige projectnaam'}); return
     if not source: emit('error', {'message': 'Bronproject niet gevonden'}); return
+    if _resolve_project_name(dest): emit('error', {'message': 'Doelproject bestaat al'}); return
     src_path = os.path.join(PROJECTS_DIR, source); dest_path = os.path.join(PROJECTS_DIR, dest)
     if not os.path.exists(src_path): emit('error', {'message': 'Bronproject niet gevonden'}); return
     if os.path.exists(dest_path): emit('error', {'message': 'Doelproject bestaat al'}); return
