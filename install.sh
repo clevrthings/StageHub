@@ -16,6 +16,7 @@ CLI_BIN="/usr/local/bin/stagechat"
 DEFAULT_SERVICE_USER="stagechat"
 INTERACTIVE_INPUT="/dev/tty"
 INSTALL_MODE="new"
+INSTALLER_VERSION="2026-02-22-3"
 
 
 log() {
@@ -38,15 +39,14 @@ have_cmd() {
 }
 
 prompt_read() {
-  local var_name="$1"
-  local prompt="$2"
+  local prompt="$1"
   local input_value=""
   if [ -r "${INTERACTIVE_INPUT}" ]; then
     read -r -p "${prompt}" input_value < "${INTERACTIVE_INPUT}" || true
   else
     read -r -p "${prompt}" input_value || true
   fi
-  printf -v "${var_name}" '%s' "${input_value}"
+  printf '%s\n' "${input_value}"
 }
 
 coerce_port() {
@@ -62,7 +62,7 @@ prompt_default() {
   local label="$1"
   local default="$2"
   local reply=""
-  prompt_read reply "${label} [${default}]: "
+  reply="$(prompt_read "${label} [${default}]: ")"
   if [ -n "${reply:-}" ]; then
     printf '%s\n' "${reply}"
   else
@@ -94,6 +94,8 @@ update_repo() {
 }
 
 choose_install_mode() {
+  local mode=""
+  local confirm=""
   if [ -d "${INSTALL_DIR}/.git" ]; then
     log "Existing StageChat installation detected at ${INSTALL_DIR}"
     while true; do
@@ -103,7 +105,7 @@ Choose install mode:
   2) Clean reinstall (delete installation folder)
   3) Cancel
 EOF
-      prompt_read mode "Select [1/2/3]: "
+      mode="$(prompt_read "Select [1/2/3]: ")"
       case "${mode:-}" in
         1)
           INSTALL_MODE="update"
@@ -111,7 +113,7 @@ EOF
           return
           ;;
         2)
-          prompt_read confirm "This removes ${INSTALL_DIR}. Continue? [y/N]: "
+          confirm="$(prompt_read "This removes ${INSTALL_DIR}. Continue? [y/N]: ")"
           case "${confirm:-n}" in
             y|Y|yes|YES)
               INSTALL_MODE="clean"
@@ -134,7 +136,7 @@ EOF
 
   if [ -d "${INSTALL_DIR}" ] && [ ! -d "${INSTALL_DIR}/.git" ]; then
     log "Directory ${INSTALL_DIR} exists but is not a git checkout."
-    prompt_read confirm "Delete and reinstall into ${INSTALL_DIR}? [y/N]: "
+    confirm="$(prompt_read "Delete and reinstall into ${INSTALL_DIR}? [y/N]: ")"
     case "${confirm:-n}" in
       y|Y|yes|YES)
         INSTALL_MODE="clean"
@@ -166,6 +168,7 @@ resolve_nologin_shell() {
 
 choose_service_user() {
   local candidate
+  local create_ans=""
   while true; do
     candidate="$(prompt_default "Linux user for StageChat service" "${DEFAULT_SERVICE_USER}")"
     if [ -z "${candidate:-}" ]; then
@@ -176,7 +179,7 @@ choose_service_user() {
       printf '%s\n' "${candidate}"
       return
     fi
-    prompt_read create_ans "User '${candidate}' does not exist. Create system user? [Y/n]: "
+    create_ans="$(prompt_read "User '${candidate}' does not exist. Create system user? [Y/n]: ")"
     case "${create_ans:-Y}" in
       n|N|no|NO)
         ;;
@@ -260,7 +263,7 @@ configure_main_config() {
   local input_port
   local port
   local case_prompt
-  local case_input
+  local case_input=""
   local case_value
 
   mapfile -t cfg < <(read_existing_config_defaults "${defaults_file}")
@@ -282,7 +285,7 @@ configure_main_config() {
   else
     case_prompt="y/N"
   fi
-  prompt_read case_input "Username case-sensitive mode? [${case_prompt}]: "
+  case_input="$(prompt_read "Username case-sensitive mode? [${case_prompt}]: ")"
   case "${case_input:-}" in
     y|Y|yes|YES)
       case_value="true"
@@ -394,6 +397,7 @@ enable_and_start_service() {
 
 main() {
   require_root
+  log "Installer version: ${INSTALLER_VERSION}"
   have_cmd systemctl || die "systemctl not found. This installer requires systemd."
   if [ ! -r "${INTERACTIVE_INPUT}" ]; then
     log "Geen interactieve terminal gedetecteerd; standaardwaarden worden gebruikt."
