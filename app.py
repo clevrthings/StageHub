@@ -35,10 +35,11 @@ CONFIG_FILE   = os.path.join(BASE_DIR, 'config.json')
 CERT_FILE     = os.path.join(BASE_DIR, 'cert.pem')
 KEY_FILE      = os.path.join(BASE_DIR, 'key.pem')
 MAX_HISTORY   = 200
-APP_VERSION   = '1.0.0'
+APP_VERSION   = '1.1.0'
 
 DEFAULT_CHANNELS = ['algemeen', 'foh', 'podium', 'licht']
 DEFAULT_INTERCOM_GROUP = {'id': 'all-call', 'name': 'All Call'}
+DEFAULT_INTERCOM_GROUP_ID = DEFAULT_INTERCOM_GROUP['id']
 
 PROJECT_DIR:  str = ''
 DATA_FILE:    str = ''
@@ -118,8 +119,8 @@ def _coerce_project_config(data: dict) -> dict:
             continue
         seen_ids.add(gid)
         groups.append({'id': gid, 'name': name[:40]})
-    if not groups:
-        groups = [dict(DEFAULT_INTERCOM_GROUP)]
+    groups = [g for g in groups if g.get('id') != DEFAULT_INTERCOM_GROUP_ID]
+    groups.insert(0, dict(DEFAULT_INTERCOM_GROUP))
     cfg['intercom_groups'] = groups
     return cfg
 
@@ -422,9 +423,11 @@ def _intercom_group_ids() -> set:
 
 def _default_intercom_group_id() -> str:
     groups = PROJECT_CONFIG.get('intercom_groups', [])
+    if any(isinstance(group, dict) and group.get('id') == DEFAULT_INTERCOM_GROUP_ID for group in groups):
+        return DEFAULT_INTERCOM_GROUP_ID
     if groups and isinstance(groups[0], dict) and groups[0].get('id'):
         return groups[0]['id']
-    return DEFAULT_INTERCOM_GROUP['id']
+    return DEFAULT_INTERCOM_GROUP_ID
 
 
 def _normalize_group_selection(values) -> list:
@@ -442,6 +445,13 @@ def _normalize_group_selection(values) -> list:
         fallback = _default_intercom_group_id()
         if fallback in allowed:
             normalized = [fallback]
+    return normalized
+
+
+def _normalize_talk_group_selection(values) -> list:
+    normalized = _normalize_group_selection(values)
+    if len(normalized) > 1:
+        return [normalized[0]]
     return normalized
 
 
@@ -474,7 +484,7 @@ def _ensure_intercom_session(sid: str):
     state = intercom_sessions.get(sid)
     if state:
         state['listen_groups'] = _normalize_group_selection(state.get('listen_groups', []))
-        state['talk_groups'] = _normalize_group_selection(state.get('talk_groups', []))
+        state['talk_groups'] = _normalize_talk_group_selection(state.get('talk_groups', []))
         state['online'] = bool(state.get('online', False))
         state['talking'] = bool(state.get('talking', False)) and state['online']
         return state
@@ -482,7 +492,7 @@ def _ensure_intercom_session(sid: str):
         'online': False,
         'talking': False,
         'listen_groups': _normalize_group_selection([]),
-        'talk_groups': _normalize_group_selection([]),
+        'talk_groups': _normalize_talk_group_selection([]),
     }
     intercom_sessions[sid] = state
     return state
@@ -1467,7 +1477,7 @@ def on_intercom_set_talk_groups(data):
     if sid not in connected_users:
         return
     state = _ensure_intercom_session(sid)
-    state['talk_groups'] = _normalize_group_selection(data.get('groups', []))
+    state['talk_groups'] = _normalize_talk_group_selection(data.get('groups', []))
     if not state['talk_groups']:
         state['talking'] = False
     _broadcast_intercom_state()
@@ -1510,6 +1520,9 @@ def on_intercom_group_rename(data):
         return
     gid = str(data.get('id', '')).strip().lower()
     new_name = str(data.get('name', '')).strip()
+    if gid == DEFAULT_INTERCOM_GROUP_ID:
+        emit('error', {'message': 'All Call groep kan niet hernoemd worden'})
+        return
     if not gid or len(new_name) < 2 or len(new_name) > 40:
         emit('error', {'message': 'Ongeldige groepsnaam'})
         return
@@ -1534,6 +1547,9 @@ def on_intercom_group_delete(data):
         emit('error', {'message': 'Geen beheerdersrechten'})
         return
     gid = str(data.get('id', '')).strip().lower()
+    if gid == DEFAULT_INTERCOM_GROUP_ID:
+        emit('error', {'message': 'All Call groep kan niet verwijderd worden'})
+        return
     groups = PROJECT_CONFIG.get('intercom_groups', [])
     if len(groups) <= 1:
         emit('error', {'message': 'Minimaal 1 intercomgroep vereist'})
@@ -1545,7 +1561,7 @@ def on_intercom_group_delete(data):
     PROJECT_CONFIG['intercom_groups'] = next_groups
     for state in intercom_sessions.values():
         state['listen_groups'] = _normalize_group_selection(state.get('listen_groups', []))
-        state['talk_groups'] = _normalize_group_selection(state.get('talk_groups', []))
+        state['talk_groups'] = _normalize_talk_group_selection(state.get('talk_groups', []))
         if not state['talk_groups']:
             state['talking'] = False
     save_project_settings(ACTIVE_PROJECT)

@@ -311,11 +311,21 @@
   }
   #project-badge .proj-name { color: var(--text-secondary); font-weight: 500; }
   .sidebar-tabs {
-    padding: 8px;
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    padding: 10px 8px 8px;
+    display: flex;
+    flex-direction: column;
     gap: 6px;
-    border-bottom: 1px solid var(--border);
+  }
+  .sidebar-tab-title {
+    color: var(--text-secondary);
+    font-size: .74rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .08em;
+    padding: 8px 8px 2px;
+  }
+  .sidebar-tab-title.active {
+    color: var(--text-primary);
   }
   .sidebar-tab-btn {
     background: var(--bg-panel);
@@ -343,22 +353,12 @@
     color: #fff;
     background: rgba(224,92,92,.88);
   }
-  .sidebar-pane-wrap {
+  .sidebar-nav-wrap {
     flex: 1;
     min-height: 0;
     display: flex;
     flex-direction: column;
     overflow: hidden;
-  }
-  .sidebar-pane {
-    display: none;
-    flex: 1;
-    min-height: 0;
-    overflow: hidden;
-  }
-  .sidebar-pane.active {
-    display: flex;
-    flex-direction: column;
   }
   .sidebar-section {
     padding: 14px 12px 6px; font-size: .7rem; font-weight: 600;
@@ -372,6 +372,16 @@
   }
   .sidebar-section .add-btn:hover { background: var(--bg-panel); color: var(--text-primary); }
   .sidebar-section .add-btn.hidden { display: none; }
+  .sidebar-online-count {
+    min-width: 20px;
+    padding: 1px 6px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    font-size: .68rem;
+    text-align: center;
+    color: var(--text-secondary);
+    background: var(--bg-panel);
+  }
 
   #create-channel-form { padding: 0 8px 8px; display: none; }
   #create-channel-form.visible { display: block; }
@@ -597,24 +607,129 @@
     padding: 3px 7px;
     font-size: .72rem;
   }
-  .intercom-group-checks {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
+  .intercom-group-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-start;
     gap: 6px;
     margin-top: 8px;
-    font-size: .72rem;
-    color: var(--text-secondary);
   }
-  .intercom-group-checks label {
-    display: flex;
-    align-items: center;
-    gap: 6px;
+  .intercom-group-btn {
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--text-secondary);
+    font-size: .74rem;
+    font-weight: 600;
+    padding: 6px 8px;
+    text-align: center;
+    min-width: 94px;
+    width: auto;
+    transition: border-color .15s, background .15s, color .15s;
+  }
+  .intercom-group-btn.listen.active {
+    border-color: rgba(76,175,122,.45);
+    background: rgba(76,175,122,.12);
+    color: var(--online-dot);
+  }
+  .intercom-group-btn.talk.active {
+    border-color: var(--accent);
+    background: rgba(245,166,35,.18);
+    color: var(--text-primary);
+  }
+  .intercom-group-btn:hover {
+    border-color: var(--accent);
+    color: var(--text-primary);
+  }
+  .intercom-group-btn:disabled {
+    opacity: .55;
+    cursor: not-allowed;
   }
 
   /* ── Main ── */
   #main {
-    flex: 1; display: flex; flex-direction: column; min-width: 0;
+    flex: 1; display: flex; min-width: 0;
     min-height: 0; overflow: hidden;
+  }
+  .main-view {
+    display: none;
+    flex: 1;
+    min-height: 0;
+    min-width: 0;
+    flex-direction: column;
+  }
+  .main-view.active {
+    display: flex;
+  }
+  .view-header {
+    padding: 14px 20px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: .95rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    background: var(--bg-sidebar);
+  }
+  .view-menu-btn {
+    display: none;
+    background: none;
+    border: none;
+    color: var(--text-secondary);
+    cursor: pointer;
+    padding: 4px 6px;
+    font-size: 1.3rem;
+    line-height: 1;
+    flex-shrink: 0;
+  }
+  .main-files-wrap {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .main-files-wrap .files-toolbar {
+    padding: 12px 20px;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg-panel);
+  }
+  .main-files-wrap .files-list {
+    padding: 12px 20px 14px;
+  }
+  .main-intercom-wrap {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    padding: 12px 20px 14px;
+    gap: 10px;
+    overflow-y: auto;
+  }
+  .main-intercom-wrap .intercom-status {
+    margin: 0;
+  }
+  .main-intercom-wrap .intercom-controls {
+    padding: 0;
+    grid-template-columns: max-content 180px;
+    justify-content: flex-start;
+    align-items: center;
+  }
+  .main-intercom-wrap .intercom-talk-row {
+    padding: 0;
+    display: flex;
+    justify-content: flex-start;
+  }
+  .main-intercom-wrap #intercom-toggle-btn,
+  .main-intercom-wrap #intercom-talk-btn {
+    width: auto;
+    min-width: 170px;
+  }
+  .main-intercom-wrap .intercom-group-create {
+    padding: 0;
+  }
+  .main-intercom-wrap .intercom-groups-list {
+    padding: 0;
   }
 
   #chat-header {
@@ -906,14 +1021,42 @@
     body { flex-direction: column; }
     #main { height: 100%; min-height: 0; }
     #menu-btn { display: flex; align-items: center; }
+    .view-menu-btn { display: flex; align-items: center; }
     #sidebar {
       position: fixed; top: 0; left: 0; bottom: 0; width: 260px; z-index: 50;
       transform: translateX(-100%); transition: transform .25s ease;
     }
     #sidebar.open { transform: translateX(0); }
     #chat-header { padding: 12px 14px; font-size: .9rem; gap: 6px; }
+    .view-header { padding: 12px 14px; font-size: .9rem; gap: 6px; }
     #clear-btn { display: none !important; }
     #messages { padding: 12px 14px; }
+    .main-files-wrap .files-toolbar {
+      padding: 10px 12px;
+      grid-template-columns: 1fr;
+    }
+    .main-files-wrap .files-list {
+      padding: 10px 12px 12px;
+    }
+    .main-intercom-wrap {
+      padding: 10px 12px 12px;
+    }
+    .main-intercom-wrap .intercom-controls {
+      grid-template-columns: 1fr;
+    }
+    .main-intercom-wrap #intercom-toggle-btn,
+    .main-intercom-wrap #intercom-talk-btn {
+      width: 100%;
+      min-width: 0;
+    }
+    .main-intercom-wrap .intercom-group-buttons {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+    }
+    .main-intercom-wrap .intercom-group-btn {
+      width: 100%;
+      min-width: 0;
+    }
     #input-bar {
       padding: 10px 12px calc(10px + env(safe-area-inset-bottom)); gap: 8px;
     }
@@ -1034,33 +1177,93 @@
   <div class="sidebar-logo">⚡ StageHub <span class="version">v{{ app_version }}</span></div>
   <div id="project-badge"><span class="proj-name">laden…</span></div>
 
-  <div class="sidebar-tabs">
-    <button class="sidebar-tab-btn active" id="sidebar-tab-chat" onclick="switchSidebarPane('chat')">Chat</button>
-    <button class="sidebar-tab-btn" id="sidebar-tab-files" onclick="switchSidebarPane('files')">Bestanden</button>
-    <button class="sidebar-tab-btn" id="sidebar-tab-intercom" onclick="switchSidebarPane('intercom')">Intercom</button>
-  </div>
+  <div class="sidebar-nav-wrap">
+    <div class="sidebar-tab-title active" id="sidebar-tab-chat-title">Chat</div>
+    <div class="sidebar-section">
+      <span id="sidebar-channels-label">Kanalen</span>
+      <button class="add-btn hidden" id="add-channel-btn" title="Nieuw kanaal aanmaken" onclick="toggleCreateChannel()">+</button>
+    </div>
+    <div id="create-channel-form">
+      <input id="new-channel-input" type="text" placeholder="kanaal-naam (a-z, 0-9, -)" maxlength="20" autocomplete="off">
+    </div>
+    <ul class="channel-list" id="channel-list"></ul>
 
-  <div class="sidebar-pane-wrap">
-    <div class="sidebar-pane active" id="sidebar-pane-chat">
-      <div class="sidebar-section">
-        <span id="sidebar-channels-label">Kanalen</span>
-        <button class="add-btn hidden" id="add-channel-btn" title="Nieuw kanaal aanmaken" onclick="toggleCreateChannel()">+</button>
-      </div>
-      <div id="create-channel-form">
-        <input id="new-channel-input" type="text" placeholder="kanaal-naam (a-z, 0-9, -)" maxlength="20" autocomplete="off">
-      </div>
-      <ul class="channel-list" id="channel-list"></ul>
-
-      <div class="sidebar-section">
-        <span id="sidebar-online-label">Online</span>
-      </div>
-      <ul class="user-list" id="user-list"></ul>
+    <div class="sidebar-tabs">
+      <button class="sidebar-tab-btn" id="sidebar-tab-files" onclick="switchMainView('files')">Bestanden</button>
+      <button class="sidebar-tab-btn" id="sidebar-tab-intercom" onclick="switchMainView('intercom')">Intercom</button>
     </div>
 
-    <div class="sidebar-pane" id="sidebar-pane-files">
-      <div class="sidebar-section">
-        <span id="sidebar-files-label">Bestanden</span>
+    <div class="sidebar-section">
+      <span id="sidebar-online-label">Online</span>
+      <span class="sidebar-online-count" id="sidebar-online-count">0</span>
+    </div>
+    <ul class="user-list" id="user-list"></ul>
+  </div>
+
+  <div class="sidebar-footer">
+    <button id="logout-btn" class="footer-btn" onclick="logout()">Uitloggen</button>
+    <button id="admin-btn"  class="footer-btn hidden" onclick="openAdminModal()">⚙ Beheer</button>
+  </div>
+</nav>
+
+<!-- Main content area -->
+<div id="main">
+  <section class="main-view active" id="main-view-chat">
+    <div id="chat-header">
+      <button id="menu-btn" onclick="openSidebar()" aria-label="Menu">&#9776;</button>
+      <span class="hash">#</span>
+      <span class="channel-name" id="header-channel">laden…</span>
+      <span id="channel-topic"></span>
+      <span class="user-pill" id="header-user" onclick="startRename()" title="Naam wijzigen"></span>
+      <button class="header-action" id="settings-btn" onclick="openUserSettings()" title="Persoonlijke instellingen">⚙</button>
+      <button class="header-action" id="search-btn" onclick="openSearch()" title="Zoeken">🔍</button>
+      <button class="header-action" id="export-btn" onclick="exportChat()" title="Exporteer chat">↓</button>
+      <button class="header-action" id="theme-btn" onclick="toggleTheme()" title="Thema wisselen">◐</button>
+      <button class="header-action" id="clear-btn" onclick="clearCurrentChannel()" title="Wis berichten" style="display:none;">Wis</button>
+    </div>
+
+    <div id="search-bar" class="hidden">
+      <input id="search-input" type="text" placeholder="Zoek in berichten…" autocomplete="off">
+      <button id="search-close" onclick="closeSearch()">×</button>
+    </div>
+
+    <div id="countdown-bar" class="hidden">
+      <div class="countdown-dot"></div>
+      <span id="countdown-label">Aftellen</span>
+      <span id="countdown-time">--:--</span>
+      <button id="countdown-stop-btn" class="hidden" onclick="stopCountdown()">Stop</button>
+    </div>
+
+    <div id="timer-panel" class="hidden">
+      <span class="timer-label-text" id="timer-label-text">Timer:</span>
+      <div class="timer-inputs">
+        <input class="timer-input" id="timer-h" type="number" min="0" max="23" value="0" placeholder="u">
+        <span class="timer-sep">:</span>
+        <input class="timer-input" id="timer-m" type="number" min="0" max="59" value="5" placeholder="m">
+        <span class="timer-sep">:</span>
+        <input class="timer-input" id="timer-s" type="number" min="0" max="59" value="0" placeholder="s">
       </div>
+      <input id="timer-label-input" type="text" placeholder="Label (optioneel)…" maxlength="40" autocomplete="off">
+      <button class="timer-btn start" id="timer-start-btn" onclick="startTimerFromPanel()">Start</button>
+      <button class="timer-btn stop" id="timer-stop-btn" onclick="stopCountdown()">Stop</button>
+    </div>
+
+    <div id="messages"></div>
+
+    <div id="input-bar">
+      <button id="upload-btn" title="Bestand sturen" onclick="document.getElementById('file-input').click()">📎</button>
+      <input id="file-input" type="file">
+      <input id="msg-input" type="text" placeholder="Bericht…" maxlength="500" autocomplete="off">
+      <button id="send-btn">Verstuur</button>
+    </div>
+  </section>
+
+  <section class="main-view" id="main-view-files">
+    <div class="view-header">
+      <button class="view-menu-btn" onclick="openSidebar()" aria-label="Menu">&#9776;</button>
+      <span id="main-files-title">Bestanden</span>
+    </div>
+    <div class="main-files-wrap">
       <div class="files-toolbar">
         <input id="files-search-input" type="text" placeholder="Zoek bestanden..." autocomplete="off">
         <select id="files-sort-select" onchange="loadUploadsList()">
@@ -1076,11 +1279,14 @@
       </div>
       <div id="files-list" class="files-list"></div>
     </div>
+  </section>
 
-    <div class="sidebar-pane" id="sidebar-pane-intercom">
-      <div class="sidebar-section">
-        <span id="sidebar-intercom-label">Intercom</span>
-      </div>
+  <section class="main-view" id="main-view-intercom">
+    <div class="view-header">
+      <button class="view-menu-btn" onclick="openSidebar()" aria-label="Menu">&#9776;</button>
+      <span id="main-intercom-title">Intercom</span>
+    </div>
+    <div class="main-intercom-wrap">
       <div class="intercom-status" id="intercom-status-label">Offline</div>
       <div class="intercom-controls">
         <button id="intercom-toggle-btn" onclick="toggleIntercomOnline()">Start intercom</button>
@@ -1102,63 +1308,7 @@
       </div>
       <div id="intercom-groups-list" class="intercom-groups-list"></div>
     </div>
-  </div>
-
-  <div class="sidebar-footer">
-    <button id="logout-btn" class="footer-btn" onclick="logout()">Uitloggen</button>
-    <button id="admin-btn"  class="footer-btn hidden" onclick="openAdminModal()">⚙ Beheer</button>
-  </div>
-</nav>
-
-<!-- Main chat area -->
-<div id="main">
-  <div id="chat-header">
-    <button id="menu-btn" onclick="openSidebar()" aria-label="Menu">&#9776;</button>
-    <span class="hash">#</span>
-    <span class="channel-name" id="header-channel">laden…</span>
-    <span id="channel-topic"></span>
-    <span class="user-pill" id="header-user" onclick="startRename()" title="Naam wijzigen"></span>
-    <button class="header-action" id="settings-btn" onclick="openUserSettings()" title="Persoonlijke instellingen">⚙</button>
-    <button class="header-action" id="search-btn" onclick="openSearch()" title="Zoeken">🔍</button>
-    <button class="header-action" id="export-btn" onclick="exportChat()" title="Exporteer chat">↓</button>
-    <button class="header-action" id="theme-btn" onclick="toggleTheme()" title="Thema wisselen">◐</button>
-    <button class="header-action" id="clear-btn" onclick="clearCurrentChannel()" title="Wis berichten" style="display:none;">Wis</button>
-  </div>
-
-  <div id="search-bar" class="hidden">
-    <input id="search-input" type="text" placeholder="Zoek in berichten…" autocomplete="off">
-    <button id="search-close" onclick="closeSearch()">×</button>
-  </div>
-
-  <div id="countdown-bar" class="hidden">
-    <div class="countdown-dot"></div>
-    <span id="countdown-label">Aftellen</span>
-    <span id="countdown-time">--:--</span>
-    <button id="countdown-stop-btn" class="hidden" onclick="stopCountdown()">Stop</button>
-  </div>
-
-  <div id="timer-panel" class="hidden">
-    <span class="timer-label-text" id="timer-label-text">Timer:</span>
-    <div class="timer-inputs">
-      <input class="timer-input" id="timer-h" type="number" min="0" max="23" value="0" placeholder="u">
-      <span class="timer-sep">:</span>
-      <input class="timer-input" id="timer-m" type="number" min="0" max="59" value="5" placeholder="m">
-      <span class="timer-sep">:</span>
-      <input class="timer-input" id="timer-s" type="number" min="0" max="59" value="0" placeholder="s">
-    </div>
-    <input id="timer-label-input" type="text" placeholder="Label (optioneel)…" maxlength="40" autocomplete="off">
-    <button class="timer-btn start" id="timer-start-btn" onclick="startTimerFromPanel()">Start</button>
-    <button class="timer-btn stop" id="timer-stop-btn" onclick="stopCountdown()">Stop</button>
-  </div>
-
-  <div id="messages"></div>
-
-  <div id="input-bar">
-    <button id="upload-btn" title="Bestand sturen" onclick="document.getElementById('file-input').click()">📎</button>
-    <input id="file-input" type="file">
-    <input id="msg-input" type="text" placeholder="Bericht…" maxlength="500" autocomplete="off">
-    <button id="send-btn">Verstuur</button>
-  </div>
+  </section>
 </div>
 
 <script>
@@ -1175,6 +1325,7 @@
   const STORAGE_KEY_SHOW_SYS = 'stagehub_show_system_messages';
   const STORAGE_KEY_INTERCOM_MODE = 'stagehub_intercom_talk_mode';
   const MAX_AUDIO_CHANNELS   = 16;
+  const INTERCOM_ALL_GROUP_ID = 'all-call';
 
   function readStorage(key)       { try { return localStorage.getItem(key) || ''; } catch(_) { return ''; } }
   function writeStorage(key, val) { try { localStorage.setItem(key, val); } catch(_) {} }
@@ -1208,7 +1359,7 @@
   let authToken      = migrateStorageKey(STORAGE_KEY_TOKEN, 'stagechat_token');
   let currentChannel = 'algemeen';
   let currentProject = '';
-  let activeSidebarPane = 'chat';
+  let activeMainView = 'chat';
   let socket         = null;
   let totalUnread    = 0;
   let settingsSavePending = false;
@@ -1934,11 +2085,11 @@
     const authBtn = document.getElementById('auth-btn');
     const chLabel = document.getElementById('sidebar-channels-label');
     const onLabel = document.getElementById('sidebar-online-label');
-    const filesLabel = document.getElementById('sidebar-files-label');
-    const intercomLabel = document.getElementById('sidebar-intercom-label');
-    const tabChat = document.getElementById('sidebar-tab-chat');
+    const tabChatTitle = document.getElementById('sidebar-tab-chat-title');
     const tabFiles = document.getElementById('sidebar-tab-files');
     const tabIntercom = document.getElementById('sidebar-tab-intercom');
+    const mainFilesTitle = document.getElementById('main-files-title');
+    const mainIntercomTitle = document.getElementById('main-intercom-title');
     const authUser = document.getElementById('auth-username');
     const authPass = document.getElementById('auth-password');
     const logoutBtn = document.getElementById('logout-btn');
@@ -1985,11 +2136,11 @@
     if (sendBtn) sendBtn.textContent = t('send_btn');
     if (chLabel) chLabel.textContent = t('sidebar_channels');
     if (onLabel) onLabel.textContent = t('sidebar_online');
-    if (filesLabel) filesLabel.textContent = t('sidebar_files');
-    if (intercomLabel) intercomLabel.textContent = t('sidebar_intercom');
-    if (tabChat) tabChat.textContent = t('sidebar_tab_chat');
+    if (tabChatTitle) tabChatTitle.textContent = t('sidebar_tab_chat');
     if (tabFiles) tabFiles.textContent = t('sidebar_tab_files');
     if (tabIntercom) tabIntercom.textContent = t('sidebar_tab_intercom');
+    if (mainFilesTitle) mainFilesTitle.textContent = t('sidebar_files');
+    if (mainIntercomTitle) mainIntercomTitle.textContent = t('sidebar_intercom');
     if (authUser) authUser.placeholder = t('auth_username_placeholder');
     if (authPass) authPass.placeholder = t('auth_password_placeholder');
     if (logoutBtn) logoutBtn.textContent = t('sidebar_logout');
@@ -2038,6 +2189,7 @@
     if (confirmOk) confirmOk.textContent = t('confirm_ok');
     if (confirmMsg && !confirmCallback) confirmMsg.textContent = t('confirm_default');
     if (menuBtn) menuBtn.setAttribute('aria-label', t('menu_aria'));
+    document.querySelectorAll('.view-menu-btn').forEach(btn => btn.setAttribute('aria-label', t('menu_aria')));
     if (projectBadgeName && !currentProject) {
       projectBadgeName.textContent = t('project_loading');
     }
@@ -2211,14 +2363,17 @@
   // ── Sidebar ──
   function openSidebar()  { sidebar.classList.add('open'); drawerOverlay.classList.add('visible'); }
   function closeSidebar() { sidebar.classList.remove('open'); drawerOverlay.classList.remove('visible'); }
-  function switchSidebarPane(pane) {
-    activeSidebarPane = pane;
+  function switchMainView(pane) {
+    activeMainView = pane;
+    const chatTitle = document.getElementById('sidebar-tab-chat-title');
+    if (chatTitle) chatTitle.classList.toggle('active', pane === 'chat');
     ['chat', 'files', 'intercom'].forEach(name => {
       const btn = document.getElementById(`sidebar-tab-${name}`);
-      const el = document.getElementById(`sidebar-pane-${name}`);
+      const el = document.getElementById(`main-view-${name}`);
       if (btn) btn.classList.toggle('active', name === pane);
       if (el) el.classList.toggle('active', name === pane);
     });
+    if (window.matchMedia('(max-width: 639px)').matches) closeSidebar();
     if (pane === 'files') loadUploadsList();
     if (pane === 'intercom') socket && socket.emit('intercom_get_state', {});
   }
@@ -2319,47 +2474,60 @@
     }
     const self = getSelfIntercomState();
     const listen = new Set((self && self.listen_groups) || []);
-    const talk = new Set((self && self.talk_groups) || []);
+    const activeTalkGroup = String(((self && self.talk_groups) || [])[0] || INTERCOM_ALL_GROUP_ID);
     list.innerHTML = groups.map(group => {
       const gid = String(group.id || '');
       const gname = String(group.name || gid);
       const nameEncoded = encodeURIComponent(gname);
+      const canManageGroup = isAdmin && gid !== INTERCOM_ALL_GROUP_ID;
       return `<div class="intercom-group-row">
         <div class="intercom-group-top">
           <span class="intercom-group-name">${escapeHtml(gname)}</span>
-          <span class="intercom-group-actions ${isAdmin ? '' : 'hidden'}">
+          <span class="intercom-group-actions ${canManageGroup ? '' : 'hidden'}">
             <button onclick="renameIntercomGroup('${escapeHtml(gid)}','${nameEncoded}')">✎</button>
             <button onclick="deleteIntercomGroup('${escapeHtml(gid)}','${nameEncoded}')">×</button>
           </span>
         </div>
-        <div class="intercom-group-checks">
-          <label><input type="checkbox" data-role="listen" data-group="${escapeHtml(gid)}" ${listen.has(gid) ? 'checked' : ''}>${escapeHtml(t('intercom_listen'))}</label>
-          <label><input type="checkbox" data-role="talk" data-group="${escapeHtml(gid)}" ${talk.has(gid) ? 'checked' : ''}>${escapeHtml(t('intercom_talk_target'))}</label>
+        <div class="intercom-group-buttons">
+          <button class="intercom-group-btn listen ${listen.has(gid) ? 'active' : ''}" data-role="listen" data-group="${escapeHtml(gid)}" type="button">${escapeHtml(t('intercom_listen'))}</button>
+          <button class="intercom-group-btn talk ${gid === activeTalkGroup ? 'active' : ''}" data-role="talk" data-group="${escapeHtml(gid)}" type="button">${escapeHtml(t('intercom_talk_target'))}</button>
         </div>
       </div>`;
     }).join('');
-    list.querySelectorAll('input[data-role="listen"]').forEach(el => {
-      el.addEventListener('change', onIntercomListenChanged);
+    list.querySelectorAll('button[data-role="listen"]').forEach(el => {
+      el.addEventListener('click', () => {
+        const gid = el.getAttribute('data-group') || '';
+        toggleIntercomListenGroup(gid);
+      });
     });
-    list.querySelectorAll('input[data-role="talk"]').forEach(el => {
-      el.addEventListener('change', onIntercomTalkTargetsChanged);
+    list.querySelectorAll('button[data-role="talk"]').forEach(el => {
+      el.addEventListener('click', () => {
+        const gid = el.getAttribute('data-group') || '';
+        selectIntercomTalkGroup(gid);
+      });
     });
   }
 
-  function selectedIntercomGroups(role) {
-    return Array.from(document.querySelectorAll(`#intercom-groups-list input[data-role="${role}"]:checked`))
-      .map(el => el.getAttribute('data-group'))
-      .filter(Boolean);
+  function toggleIntercomListenGroup(groupId) {
+    if (!socket) return;
+    const gid = String(groupId || '').trim().toLowerCase();
+    if (!gid) return;
+    const self = getSelfIntercomState();
+    const next = new Set((self && self.listen_groups) || []);
+    if (next.has(gid)) {
+      next.delete(gid);
+    } else {
+      next.add(gid);
+    }
+    if (!next.size) next.add(INTERCOM_ALL_GROUP_ID);
+    socket.emit('intercom_set_listen_groups', { groups: Array.from(next) });
   }
 
-  function onIntercomListenChanged() {
+  function selectIntercomTalkGroup(groupId) {
     if (!socket) return;
-    socket.emit('intercom_set_listen_groups', { groups: selectedIntercomGroups('listen') });
-  }
-
-  function onIntercomTalkTargetsChanged() {
-    if (!socket) return;
-    socket.emit('intercom_set_talk_groups', { groups: selectedIntercomGroups('talk') });
+    const gid = String(groupId || '').trim().toLowerCase();
+    if (!gid) return;
+    socket.emit('intercom_set_talk_groups', { groups: [gid] });
   }
 
   function setTalkMode(mode) {
@@ -2513,6 +2681,7 @@
 
   // ── Channel switching ──
   function switchChannel(ch) {
+    switchMainView('chat');
     closeSidebar();
     if (ch === currentChannel) return;
     currentChannel = ch;
@@ -3056,7 +3225,7 @@
       }
       if (!d || d.error) throw new Error((d && d.error) ? d.error : 'Ongeldige uploadresponse');
       socket.emit('send_file_message', { channel: currentChannel, filename: d.filename, url: d.url, size: d.size });
-      if (activeSidebarPane === 'files') loadUploadsList();
+      if (activeMainView === 'files') loadUploadsList();
     } catch (err) {
       alert('Upload mislukt: ' + (err && err.message ? err.message : String(err)));
     }
@@ -3449,13 +3618,15 @@
         showNotification(msg.sender, msg.type==='file'?`\u{1f4ce} ${msg.filename}`:msg.text, msg.channel);
       }
       if (msg.type === 'file') {
-        if (activeSidebarPane === 'files') loadUploadsList();
+        if (activeMainView === 'files') loadUploadsList();
       }
     });
 
     socket.on('user_list', data => {
       userListEl.innerHTML='';
       data.users.forEach(name => { const li=document.createElement('li'); li.textContent=name; userListEl.appendChild(li); });
+      const countEl = document.getElementById('sidebar-online-count');
+      if (countEl) countEl.textContent = String((data.users || []).length);
     });
 
     socket.on('admin_data', data => {
@@ -3905,7 +4076,7 @@
   renderChannelList(INITIAL_CHANNELS);
   headerChannel.textContent=currentChannel;
   if (userName) headerUser.textContent=userName;
-  switchSidebarPane('chat');
+  switchMainView('chat');
   updateIntercomUI();
   applyLanguage();
   updateDocumentTitle();
