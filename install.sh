@@ -2,32 +2,36 @@
 set -euo pipefail
 cd / || true
 
-# StageChat Raspberry Pi installer
+# StageHub Raspberry Pi installer
 # Run with:
-#   curl -fsSL https://raw.githubusercontent.com/clevrthings/StageChat/main/install.sh | sudo bash
+#   curl -fsSL https://raw.githubusercontent.com/clevrthings/StageHub/main/install.sh | sudo bash
 
 REPO_OWNER="clevrthings"
-REPO_NAME="StageChat"
+REPO_NAME="StageHub"
 BRANCH="main"
 
-INSTALL_DIR="/opt/stagechat"
-SERVICE_NAME="stagechat"
+INSTALL_DIR="/opt/stagehub"
+SERVICE_NAME="stagehub"
 SYSTEMD_UNIT="/etc/systemd/system/${SERVICE_NAME}.service"
-CLI_BIN="/usr/local/bin/stagechat"
-DEFAULT_SERVICE_USER="stagechat"
+CLI_BIN="/usr/local/bin/stagehub"
+DEFAULT_SERVICE_USER="stagehub"
+LEGACY_INSTALL_DIR="/opt/stagechat"
+LEGACY_SERVICE_NAME="stagechat"
+LEGACY_SYSTEMD_UNIT="/etc/systemd/system/${LEGACY_SERVICE_NAME}.service"
+LEGACY_CLI_BIN="/usr/local/bin/${LEGACY_SERVICE_NAME}"
 INTERACTIVE_INPUT="/dev/tty"
 INSTALL_MODE="new"
 INSTALL_ACTION="install"
-INSTALLER_VERSION="2026-02-22-8"
-STAGECHAT_VERSION="0.2.1"
+INSTALLER_VERSION="2026-02-23-9"
+STAGEHUB_VERSION="1.0.0"
 
 
 log() {
-  printf '[stagechat-install] %s\n' "$*"
+  printf '[stagehub-install] %s\n' "$*"
 }
 
 die() {
-  printf '[stagechat-install] ERROR: %s\n' "$*" >&2
+  printf '[stagehub-install] ERROR: %s\n' "$*" >&2
   exit 1
 }
 
@@ -53,7 +57,7 @@ parse_args() {
 Usage: install.sh [--update]
 
 Options:
-  --update    Non-interactive update of existing StageChat install.
+  --update    Non-interactive update of existing StageHub install.
 USAGE
         exit 0
         ;;
@@ -64,7 +68,7 @@ USAGE
 }
 
 refresh_installer_if_needed() {
-  if [ "${STAGECHAT_INSTALLER_REFRESHED:-0}" = "1" ]; then
+  if [ "${STAGEHUB_INSTALLER_REFRESHED:-0}" = "1" ]; then
     return
   fi
   if ! have_cmd curl; then
@@ -81,14 +85,14 @@ refresh_installer_if_needed() {
     die "Could not refresh installer from GitHub."
   fi
   chmod 700 "${tmp_file}"
-  export STAGECHAT_INSTALLER_TMP="${tmp_file}"
-  export STAGECHAT_INSTALLER_REFRESHED=1
+  export STAGEHUB_INSTALLER_TMP="${tmp_file}"
+  export STAGEHUB_INSTALLER_REFRESHED=1
   exec bash "${tmp_file}" "$@"
 }
 
 cleanup_installer_cache() {
-  if [ -n "${STAGECHAT_INSTALLER_TMP:-}" ] && [ -f "${STAGECHAT_INSTALLER_TMP}" ]; then
-    rm -f "${STAGECHAT_INSTALLER_TMP}" || true
+  if [ -n "${STAGEHUB_INSTALLER_TMP:-}" ] && [ -f "${STAGEHUB_INSTALLER_TMP}" ]; then
+    rm -f "${STAGEHUB_INSTALLER_TMP}" || true
   fi
   hash -r || true
 }
@@ -96,6 +100,39 @@ cleanup_installer_cache() {
 ensure_git_safe_directory() {
   git config --system --add safe.directory "${INSTALL_DIR}" >/dev/null 2>&1 || true
   git config --global --add safe.directory "${INSTALL_DIR}" >/dev/null 2>&1 || true
+}
+
+migrate_legacy_install_if_needed() {
+  if [ -d "${INSTALL_DIR}" ]; then
+    return
+  fi
+  if [ "${INSTALL_DIR}" = "${LEGACY_INSTALL_DIR}" ]; then
+    return
+  fi
+  if [ ! -d "${LEGACY_INSTALL_DIR}" ]; then
+    return
+  fi
+  log "Legacy install found at ${LEGACY_INSTALL_DIR}. Migrating to ${INSTALL_DIR}..."
+  if have_cmd systemctl; then
+    systemctl stop "${LEGACY_SERVICE_NAME}.service" >/dev/null 2>&1 || true
+  fi
+  mv "${LEGACY_INSTALL_DIR}" "${INSTALL_DIR}"
+}
+
+cleanup_legacy_runtime_artifacts() {
+  if [ "${LEGACY_SERVICE_NAME}" = "${SERVICE_NAME}" ]; then
+    return
+  fi
+  if have_cmd systemctl; then
+    systemctl disable --now "${LEGACY_SERVICE_NAME}.service" >/dev/null 2>&1 || true
+  fi
+  rm -f "${LEGACY_SYSTEMD_UNIT}" || true
+  if [ -f "${LEGACY_CLI_BIN}" ] && [ "${LEGACY_CLI_BIN}" != "${CLI_BIN}" ]; then
+    rm -f "${LEGACY_CLI_BIN}" || true
+  fi
+  if have_cmd systemctl; then
+    systemctl daemon-reload >/dev/null 2>&1 || true
+  fi
 }
 
 prompt_read() {
@@ -157,8 +194,9 @@ update_repo() {
 choose_install_mode() {
   local mode=""
   local confirm=""
+  migrate_legacy_install_if_needed
   if [ -d "${INSTALL_DIR}/.git" ]; then
-    log "Existing StageChat installation detected at ${INSTALL_DIR}"
+    log "Existing StageHub installation detected at ${INSTALL_DIR}"
     while true; do
       cat <<'EOF'
 Choose install mode:
@@ -231,7 +269,7 @@ choose_service_user() {
   local candidate
   local create_ans=""
   while true; do
-    candidate="$(prompt_default "Linux user for StageChat service" "${DEFAULT_SERVICE_USER}")"
+    candidate="$(prompt_default "Linux user for StageHub service" "${DEFAULT_SERVICE_USER}")"
     if [ -z "${candidate:-}" ]; then
       log "Lege gebruikersnaam is niet geldig."
       continue
@@ -266,9 +304,15 @@ detect_existing_service_user() {
   local service_user=""
   if have_cmd systemctl; then
     service_user="$(systemctl show -p User --value "${SERVICE_NAME}.service" 2>/dev/null | tr -d '[:space:]' || true)"
+    if [ -z "${service_user}" ]; then
+      service_user="$(systemctl show -p User --value "${LEGACY_SERVICE_NAME}.service" 2>/dev/null | tr -d '[:space:]' || true)"
+    fi
   fi
   if [ -z "${service_user}" ] && [ -f "${SYSTEMD_UNIT}" ]; then
     service_user="$(awk -F= '/^User=/{print $2; exit}' "${SYSTEMD_UNIT}" | tr -d '[:space:]')"
+  fi
+  if [ -z "${service_user}" ] && [ -f "${LEGACY_SYSTEMD_UNIT}" ]; then
+    service_user="$(awk -F= '/^User=/{print $2; exit}' "${LEGACY_SYSTEMD_UNIT}" | tr -d '[:space:]')"
   fi
   if [ -z "${service_user}" ]; then
     service_user="${DEFAULT_SERVICE_USER}"
@@ -356,7 +400,7 @@ configure_main_config() {
   default_case="${cfg[2]:-false}"
 
   while true; do
-    input_port="$(prompt_default "Port for StageChat" "${default_port}")"
+    input_port="$(prompt_default "Port for StageHub" "${default_port}")"
     port="$(coerce_port "${input_port}")"
     if [ "${port}" = "${input_port}" ]; then
       break
@@ -396,7 +440,7 @@ write_systemd_service() {
   local service_user="$1"
   cat > "${SYSTEMD_UNIT}" <<EOF
 [Unit]
-Description=StageChat server
+Description=StageHub server
 After=network-online.target
 Wants=network-online.target
 
@@ -422,8 +466,8 @@ write_cli_wrapper() {
 #!/usr/bin/env bash
 set -euo pipefail
 
-SERVICE_NAME="stagechat.service"
-INSTALL_SCRIPT="/opt/stagechat/install.sh"
+SERVICE_NAME="stagehub.service"
+INSTALL_SCRIPT="/opt/stagehub/install.sh"
 
 run_systemctl() {
   if [ "$(id -u)" -eq 0 ]; then
@@ -456,19 +500,19 @@ case "${cmd}" in
     ;;
   ""|help|-h|--help)
     cat <<'USAGE'
-Usage: stagechat <command>
+Usage: stagehub <command>
 
 Commands:
-  start      Start StageChat service
-  stop       Stop StageChat service
-  restart    Restart StageChat service
-  status     Show StageChat service status
+  start      Start StageHub service
+  stop       Stop StageHub service
+  restart    Restart StageHub service
+  status     Show StageHub service status
   update     Pull latest code and restart (keeps settings)
 USAGE
     ;;
   *)
     echo "Unknown command: ${cmd}" >&2
-    echo "Run 'stagechat help' for usage." >&2
+    echo "Run 'stagehub help' for usage." >&2
     exit 1
     ;;
 esac
@@ -489,8 +533,9 @@ enable_and_start_service() {
 }
 
 run_update_action() {
+  migrate_legacy_install_if_needed
   if [ ! -d "${INSTALL_DIR}/.git" ]; then
-    die "No existing StageChat installation found in ${INSTALL_DIR}. Run installer without --update first."
+    die "No existing StageHub installation found in ${INSTALL_DIR}. Run installer without --update first."
   fi
 
   local backup_config=""
@@ -515,13 +560,14 @@ run_update_action() {
   write_systemd_service "${service_user}"
   write_cli_wrapper
   enable_and_start_service
+  cleanup_legacy_runtime_artifacts
 
   rm -f "${backup_config}" || true
   cleanup_installer_cache
   log "Update complete."
   log "Service: ${SERVICE_NAME}.service (running + enabled)"
   log "Settings preserved from existing config.json."
-  log "StageChat version used: ${STAGECHAT_VERSION}"
+  log "StageHub version used: ${STAGEHUB_VERSION}"
   log "Installer version used: ${INSTALLER_VERSION}"
 }
 
@@ -530,12 +576,13 @@ main() {
   parse_args "$@"
   refresh_installer_if_needed "$@"
   log "Installer version: ${INSTALLER_VERSION}"
-  log "StageChat version: ${STAGECHAT_VERSION}"
+  log "StageHub version: ${STAGEHUB_VERSION}"
   have_cmd systemctl || die "systemctl not found. This installer requires systemd."
   if [ "${INSTALL_ACTION}" = "update" ]; then
     run_update_action
     return
   fi
+  migrate_legacy_install_if_needed
   if [ ! -r "${INTERACTIVE_INPUT}" ]; then
     log "Geen interactieve terminal gedetecteerd; standaardwaarden worden gebruikt."
   fi
@@ -570,6 +617,7 @@ main() {
   write_systemd_service "${service_user}"
   write_cli_wrapper
   enable_and_start_service
+  cleanup_legacy_runtime_artifacts
 
   local configured_port
   configured_port="$(python3 - <<PY
@@ -629,7 +677,7 @@ PY
 
   log "Installation complete."
   log "Service: ${SERVICE_NAME}.service (running + enabled)"
-  log "CLI commands: stagechat start | stagechat stop | stagechat restart | stagechat update"
+  log "CLI commands: stagehub start | stagehub stop | stagehub restart | stagehub update"
   log "Reachable via IP:"
   log "  ${http_url}  (auto-redirect to HTTPS)"
   log "  ${https_url}"
@@ -642,7 +690,7 @@ PY
     log "  ${https_host_local_url}"
   fi
   cleanup_installer_cache
-  log "StageChat version used: ${STAGECHAT_VERSION}"
+  log "StageHub version used: ${STAGEHUB_VERSION}"
   log "Installer version used: ${INSTALLER_VERSION}"
 }
 

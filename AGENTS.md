@@ -1,18 +1,18 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-StageChat is a small Python web app with a flat layout:
+StageHub is a small Python web app with a flat layout:
 - `app.py`: main Flask + Socket.IO server, routes, auth, uploads, and runtime startup.
 - `templates/index.html`: primary frontend UI and client-side behavior.
 - `static/js/socket.io-4.7.5.min.js`: vendored Socket.IO client script.
-- `install.sh`: Raspberry Pi installer, service setup, and `stagechat` CLI wrapper.
+- `install.sh`: Raspberry Pi installer, service setup, and `stagehub` CLI wrapper.
 - `config.json`: runtime app configuration (`active_project`, `port`, case sensitivity).
 - `projects/`: runtime data (messages, users, uploads) per project.
 - Docs: `README.md`, `INSTALL_RPI.md`, and local runbook notes in `CLAUDE.md`.
 
 ## Runtime & Deployment Context
-- Raspberry Pi install target: `/opt/stagechat`.
-- Service/CLI workflow: `stagechat start|stop|restart|status|update`.
+- Raspberry Pi install target: `/opt/stagehub`.
+- Service/CLI workflow: `stagehub start|stop|restart|status|update`.
 - Local dev run: `python app.py` from repo root after venv + dependencies.
 - Default network behavior: app serves HTTPS backend and muxes/redirects through public ports (`80/443`, backend typically `8443`).
 - Runtime/project state lives under `projects/` and is environment-specific.
@@ -20,7 +20,7 @@ StageChat is a small Python web app with a flat layout:
 ## Build, Test, and Development Commands
 - `python3 -m venv .venv && . .venv/bin/activate`: create and activate local venv.
 - `pip install -r requirements.txt`: install server dependencies.
-- `python app.py`: run StageChat locally (HTTPS backend + mux behavior in app startup).
+- `python app.py`: run StageHub locally (HTTPS backend + mux behavior in app startup).
 - `bash -n install.sh`: shell syntax check for installer changes.
 - `.venv/bin/python -m py_compile app.py`: quick Python syntax validation.
 
@@ -52,13 +52,13 @@ On **every change that is committed and pushed to GitHub**, bump version numbers
 
 Apply the same version in:
 - `app.py` -> `APP_VERSION`
-- `install.sh` -> `STAGECHAT_VERSION`
+- `install.sh` -> `STAGEHUB_VERSION`
 
 If installer behavior changes, also bump `INSTALLER_VERSION` in `install.sh`.
 
 ### Release Checklist
 - Classify change type (patch/minor/major) using the policy above.
-- Update `APP_VERSION` and `STAGECHAT_VERSION` before commit.
+- Update `APP_VERSION` and `STAGEHUB_VERSION` before commit.
 - Run `bash -n install.sh` and `.venv/bin/python -m py_compile app.py`.
 - Commit with clear message and push to `origin/main`.
 - Ensure docs reflect behavior changes (`README.md`, `INSTALL_RPI.md`, `CLAUDE.md`, and this file when needed).

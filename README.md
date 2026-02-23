@@ -1,11 +1,11 @@
-# StageChat
+# StageHub
 
 Realtime stage communication app with channels, file sharing, notifications, audio intercom, multi-project data separation and admin controls.
 
 ## One-click install (Raspberry Pi)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/clevrthings/StageChat/main/install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/clevrthings/StageHub/main/install.sh | sudo bash
 ```
 
 The installer will:
@@ -13,13 +13,14 @@ The installer will:
 - download/update the latest code from GitHub
 - create a Python virtual environment and install dependencies
 - ask for main config values (`port`, `username_case_sensitive`) with defaults
-- install and enable a `systemd` service so StageChat auto-starts after reboot
+- install and enable a `systemd` service so StageHub auto-starts after reboot
+- automatically migrate legacy `/opt/stagechat` installs/data to `/opt/stagehub`
 - install CLI commands:
-  - `stagechat start`
-  - `stagechat stop`
-  - `stagechat restart`
-  - `stagechat update`
-  - `stagechat` (help)
+  - `stagehub start`
+  - `stagehub stop`
+  - `stagehub restart`
+  - `stagehub update`
+  - `stagehub` (help)
 
 Default install values:
 

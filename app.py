@@ -35,9 +35,10 @@ CONFIG_FILE   = os.path.join(BASE_DIR, 'config.json')
 CERT_FILE     = os.path.join(BASE_DIR, 'cert.pem')
 KEY_FILE      = os.path.join(BASE_DIR, 'key.pem')
 MAX_HISTORY   = 200
-APP_VERSION   = '0.2.1'
+APP_VERSION   = '1.0.0'
 
 DEFAULT_CHANNELS = ['algemeen', 'foh', 'podium', 'licht']
+DEFAULT_INTERCOM_GROUP = {'id': 'all-call', 'name': 'All Call'}
 
 PROJECT_DIR:  str = ''
 DATA_FILE:    str = ''
@@ -54,7 +55,7 @@ message_history: dict = {ch: [] for ch in CHANNELS}
 connected_users: dict = {}
 USERS: dict           = {}           # username → {password, is_admin}
 SESSIONS: dict        = {}           # token → username
-call_participants: dict = {}
+intercom_sessions: dict = {}         # sid → {online, talking, listen_groups, talk_groups}
 CHANNEL_TOPICS: dict  = {}
 START_TIME: float = time.time()
 
@@ -73,6 +74,7 @@ def _project_config_defaults() -> dict:
         'allow_all_channel_edit': False,
         'allow_registration':     True,
         'allow_all_countdown':    False,
+        'intercom_groups':        [dict(DEFAULT_INTERCOM_GROUP)],
     }
 
 
@@ -96,6 +98,29 @@ def _coerce_project_config(data: dict) -> dict:
     cfg['allow_all_channel_edit'] = bool(cfg.get('allow_all_channel_edit', False))
     cfg['allow_registration'] = bool(cfg.get('allow_registration', True))
     cfg['allow_all_countdown'] = bool(cfg.get('allow_all_countdown', False))
+    raw_groups = cfg.get('intercom_groups', [])
+    if not isinstance(raw_groups, list):
+        raw_groups = []
+    groups = []
+    seen_ids = set()
+    for item in raw_groups:
+        if not isinstance(item, dict):
+            continue
+        gid = str(item.get('id', '')).strip().lower()
+        gid = re.sub(r'[^a-z0-9\-]+', '-', gid)
+        gid = re.sub(r'-{2,}', '-', gid).strip('-')
+        name = str(item.get('name', '')).strip()
+        if not gid:
+            continue
+        if not name:
+            name = gid.replace('-', ' ').title()
+        if gid in seen_ids:
+            continue
+        seen_ids.add(gid)
+        groups.append({'id': gid, 'name': name[:40]})
+    if not groups:
+        groups = [dict(DEFAULT_INTERCOM_GROUP)]
+    cfg['intercom_groups'] = groups
     return cfg
 
 
@@ -233,6 +258,7 @@ def load_project(project_name: str):
     for ch in CHANNELS:
         message_history[ch] = []
     USERS.clear(); CHANNEL_TOPICS.clear()
+    intercom_sessions.clear()
     load_data(); load_users()
 
 
@@ -298,7 +324,7 @@ def generate_ssl_cert():
     print('[ssl] Zelfondertekend certificaat aanmaken…')
     key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
     san = [x509.DNSName(host) for host in local_dns] + [x509.IPAddress(ipaddress.ip_address(ip)) for ip in local_ips]
-    common_name = next((host for host in local_dns if host != 'localhost'), 'stagechat')
+    common_name = next((host for host in local_dns if host != 'localhost'), 'stagehub')
     subject = issuer = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, common_name)])
     cert = (
         x509.CertificateBuilder()
@@ -390,15 +416,82 @@ def _user_list() -> list:
     return sorted(users)
 
 
-def _remove_from_call(sid):
-    for channel, participants in list(call_participants.items()):
-        if sid in participants:
-            participants.pop(sid); _broadcast_call_state(channel); break
+def _intercom_group_ids() -> set:
+    return {g['id'] for g in PROJECT_CONFIG.get('intercom_groups', []) if isinstance(g, dict) and g.get('id')}
 
 
-def _broadcast_call_state(channel):
-    participants = [{'sid': s, 'name': n} for s, n in call_participants.get(channel, {}).items()]
-    emit('call_state', {'channel': channel, 'participants': participants}, to=channel)
+def _default_intercom_group_id() -> str:
+    groups = PROJECT_CONFIG.get('intercom_groups', [])
+    if groups and isinstance(groups[0], dict) and groups[0].get('id'):
+        return groups[0]['id']
+    return DEFAULT_INTERCOM_GROUP['id']
+
+
+def _normalize_group_selection(values) -> list:
+    allowed = _intercom_group_ids()
+    if not isinstance(values, list):
+        values = []
+    normalized = []
+    seen = set()
+    for raw in values:
+        gid = str(raw or '').strip().lower()
+        if gid in allowed and gid not in seen:
+            seen.add(gid)
+            normalized.append(gid)
+    if not normalized:
+        fallback = _default_intercom_group_id()
+        if fallback in allowed:
+            normalized = [fallback]
+    return normalized
+
+
+def _intercom_payload_for(sid: str = '') -> dict:
+    participants = []
+    for psid, state in intercom_sessions.items():
+        info = connected_users.get(psid)
+        if not info:
+            continue
+        participants.append({
+            'sid': psid,
+            'name': info.get('name', ''),
+            'online': bool(state.get('online', False)),
+            'talking': bool(state.get('talking', False)),
+            'listen_groups': list(state.get('listen_groups', [])),
+            'talk_groups': list(state.get('talk_groups', [])),
+        })
+    return {
+        'groups': PROJECT_CONFIG.get('intercom_groups', []),
+        'participants': participants,
+        'self_sid': sid or '',
+    }
+
+
+def _broadcast_intercom_state():
+    socketio.emit('intercom_state', _intercom_payload_for())
+
+
+def _ensure_intercom_session(sid: str):
+    state = intercom_sessions.get(sid)
+    if state:
+        state['listen_groups'] = _normalize_group_selection(state.get('listen_groups', []))
+        state['talk_groups'] = _normalize_group_selection(state.get('talk_groups', []))
+        state['online'] = bool(state.get('online', False))
+        state['talking'] = bool(state.get('talking', False)) and state['online']
+        return state
+    state = {
+        'online': False,
+        'talking': False,
+        'listen_groups': _normalize_group_selection([]),
+        'talk_groups': _normalize_group_selection([]),
+    }
+    intercom_sessions[sid] = state
+    return state
+
+
+def _remove_from_intercom(sid: str):
+    if sid in intercom_sessions:
+        intercom_sessions.pop(sid, None)
+        _broadcast_intercom_state()
 
 
 def require_admin(token: str) -> bool:
@@ -445,6 +538,92 @@ def _get_server_hostnames() -> list:
 def _project_names() -> list:
     if not os.path.exists(PROJECTS_DIR): return ['default']
     return sorted([d for d in os.listdir(PROJECTS_DIR) if os.path.isdir(os.path.join(PROJECTS_DIR, d))])
+
+
+def _extract_upload_stored_name(url: str) -> str:
+    prefix = '/uploads/'
+    if not isinstance(url, str) or not url.startswith(prefix):
+        return ''
+    return url[len(prefix):].strip()
+
+
+def _format_uploaded_at(ts: float) -> str:
+    return datetime.fromtimestamp(ts).astimezone().isoformat()
+
+
+def _display_upload_name(stored_name: str) -> str:
+    if re.match(r'^\d+_.+', stored_name):
+        return stored_name.split('_', 1)[1]
+    return stored_name
+
+
+def _upload_inventory(query: str = '', sort_key: str = 'newest', direction: str = 'desc') -> list:
+    by_stored = {}
+    for channel, items in message_history.items():
+        for msg in items:
+            if not isinstance(msg, dict) or msg.get('type') != 'file':
+                continue
+            stored = _extract_upload_stored_name(str(msg.get('url', '')))
+            if not stored:
+                continue
+            by_stored[stored] = {
+                'uploader': str(msg.get('sender', '') or ''),
+                'channel': str(channel or ''),
+                'display_name': str(msg.get('filename', '') or stored),
+                'size': int(msg.get('size', 0) or 0),
+            }
+
+    rows = []
+    if os.path.exists(UPLOADS_DIR):
+        for fname in os.listdir(UPLOADS_DIR):
+            path = os.path.join(UPLOADS_DIR, fname)
+            if not os.path.isfile(path):
+                continue
+            try:
+                st = os.stat(path)
+            except OSError:
+                continue
+            meta = by_stored.get(fname, {})
+            rows.append({
+                'id': fname,
+                'stored_name': fname,
+                'display_name': meta.get('display_name') or _display_upload_name(fname),
+                'size': int(meta.get('size') or st.st_size),
+                'uploaded_at': _format_uploaded_at(st.st_mtime),
+                'uploaded_ts': st.st_mtime,
+                'uploader': meta.get('uploader', ''),
+                'channel': meta.get('channel', ''),
+                'url': f'/uploads/{fname}',
+            })
+
+    q = str(query or '').strip().lower()
+    if q:
+        rows = [
+            row for row in rows
+            if q in row['display_name'].lower()
+            or q in row['uploader'].lower()
+            or q in row['channel'].lower()
+        ]
+
+    key = str(sort_key or 'newest').lower()
+    direction_raw = str(direction or '').lower()
+    reverse = direction_raw == 'desc'
+    if key in ('name', 'filename'):
+        if direction_raw not in ('asc', 'desc'):
+            reverse = False
+        rows.sort(key=lambda r: (r['display_name'].lower(), r['stored_name'].lower()), reverse=reverse)
+    elif key == 'size':
+        if direction_raw not in ('asc', 'desc'):
+            reverse = True
+        rows.sort(key=lambda r: (r['size'], r['display_name'].lower()), reverse=reverse)
+    else:
+        if direction_raw not in ('asc', 'desc'):
+            reverse = (key != 'oldest')
+        rows.sort(key=lambda r: (r['uploaded_ts'], r['display_name'].lower()), reverse=reverse)
+
+    for row in rows:
+        row.pop('uploaded_ts', None)
+    return rows
 
 
 def _normalize_project_name(name: str) -> str:
@@ -661,6 +840,22 @@ def serve_upload(filename):
     return send_from_directory(UPLOADS_DIR, filename)
 
 
+@app.route('/api/uploads', methods=['GET'])
+def list_uploads():
+    token = request.args.get('token', '')
+    auth_header = request.headers.get('Authorization', '')
+    if not token and auth_header.lower().startswith('bearer '):
+        token = auth_header[7:].strip()
+    username = SESSIONS.get(token)
+    if not username:
+        return {'error': 'Niet geautoriseerd'}, 401
+    q = request.args.get('q', '')
+    sort = request.args.get('sort', 'newest')
+    direction = request.args.get('dir', 'desc')
+    files = _upload_inventory(query=q, sort_key=sort, direction=direction)
+    return {'files': files, 'count': len(files), 'project': ACTIVE_PROJECT}
+
+
 # ── Auth ──
 
 @socketio.on('auth')
@@ -736,9 +931,9 @@ def on_join(data):
                              'topic': CHANNEL_TOPICS.get(channel, '')})
     emit('new_message', _add_message(channel, 'systeem', f'{name} is de chat binnengetreden', 'system'), to=channel)
     emit('user_list', {'users': _user_list()}, broadcast=True)
-    if call_participants.get(channel):
-        participants = [{'sid': s, 'name': n} for s, n in call_participants[channel].items()]
-        emit('call_state', {'channel': channel, 'participants': participants})
+    _ensure_intercom_session(sid)
+    emit('intercom_state', _intercom_payload_for(sid))
+    _broadcast_intercom_state()
     if _countdown_end_time > time.time():
         emit('countdown_started', {'end_time': _countdown_end_time,
                                    'seconds': int(_countdown_end_time - time.time()), 'label': ''})
@@ -760,9 +955,6 @@ def on_switch_channel(data):
                              'topic': CHANNEL_TOPICS.get(new_channel, '')})
     emit('new_message', _add_message(new_channel, 'systeem', f'{name} heeft #{new_channel} betreden', 'system'), to=new_channel)
     emit('user_list', {'users': _user_list()}, broadcast=True)
-    if call_participants.get(new_channel):
-        participants = [{'sid': s, 'name': n} for s, n in call_participants[new_channel].items()]
-        emit('call_state', {'channel': new_channel, 'participants': participants})
 
 
 @socketio.on('send_message')
@@ -830,7 +1022,6 @@ def on_rename_channel(data):
     idx = CHANNELS.index(old); CHANNELS[idx] = new
     message_history[new] = message_history.pop(old)
     if old in CHANNEL_TOPICS: CHANNEL_TOPICS[new] = CHANNEL_TOPICS.pop(old)
-    if old in call_participants: call_participants[new] = call_participants.pop(old)
     for user in connected_users.values():
         if user['channel'] == old: user['channel'] = new
     save_data()
@@ -846,7 +1037,7 @@ def on_delete_channel(data):
         emit('error', {'message': 'Geen rechten om kanalen te verwijderen'}); return
     channel = data.get('channel')
     if channel not in CHANNELS or channel == 'algemeen' or len(CHANNELS) <= 1: return
-    call_participants.pop(channel, None); CHANNEL_TOPICS.pop(channel, None)
+    CHANNEL_TOPICS.pop(channel, None)
     for user in connected_users.values():
         if user['channel'] == channel: user['channel'] = 'algemeen'
     CHANNELS.remove(channel); del message_history[channel]; save_data()
@@ -879,8 +1070,8 @@ def on_rename(data):
         emit('error', {'message': 'Die naam is al in gebruik door een geregistreerde gebruiker'}); return
     connected_users[sid]['name'] = new_name
     channel = connected_users[sid]['channel']
-    if channel in call_participants and sid in call_participants[channel]:
-        call_participants[channel][sid] = new_name; _broadcast_call_state(channel)
+    if sid in intercom_sessions:
+        _broadcast_intercom_state()
     emit('new_message', _add_message(channel, 'systeem', f'{old_name} heet nu {new_name}', 'system'), to=channel)
     emit('user_list', {'users': _user_list()}, broadcast=True)
 
@@ -912,7 +1103,7 @@ def on_delete_user(data):
     for sid, user in list(connected_users.items()):
         if user['name'] == username:
             emit('kicked', {'message': 'Je account is verwijderd door een beheerder'}, to=sid)
-            _remove_from_call(sid); connected_users.pop(sid, None)
+            _remove_from_intercom(sid); connected_users.pop(sid, None)
     emit('user_deleted', {'username': username}, broadcast=True)
     emit('user_list', {'users': _user_list()}, broadcast=True)
 
@@ -944,15 +1135,16 @@ def on_reset_app(data):
     message_history.clear()
     for ch in DEFAULT_CHANNELS: message_history[ch] = []
     CHANNEL_TOPICS.clear(); save_data()
-    USERS.clear(); save_users(); SESSIONS.clear(); call_participants.clear()
+    USERS.clear(); save_users(); SESSIONS.clear(); intercom_sessions.clear()
     emit('app_reset', {'channels': DEFAULT_CHANNELS}, broadcast=True)
+    _broadcast_intercom_state()
 
 
 @socketio.on('logout')
 def on_logout(data):
     sid = request.sid; token = data.get('token')
     if token in SESSIONS: del SESSIONS[token]
-    _remove_from_call(sid)
+    _remove_from_intercom(sid)
     if sid in connected_users:
         user = connected_users.pop(sid); channel = user['channel']
         emit('new_message', _add_message(channel, 'systeem', f'{user["name"]} heeft de chat verlaten', 'system'), to=channel)
@@ -969,7 +1161,7 @@ def on_request_history(data):
 
 @socketio.on('disconnect')
 def on_disconnect():
-    sid = request.sid; _remove_from_call(sid)
+    sid = request.sid; _remove_from_intercom(sid)
     if sid not in connected_users: return
     user = connected_users.pop(sid); channel = user['channel']
     emit('new_message', _add_message(channel, 'systeem', f'{user["name"]} heeft de chat verlaten', 'system'), to=channel)
@@ -1200,29 +1392,220 @@ def on_stop_countdown(data):
     emit('countdown_stopped', {}, broadcast=True)
 
 
-# ── WebRTC ──
+# ── Intercom / WebRTC ──
 
+def _intercom_online_sids(exclude_sid: str = '') -> list:
+    online = []
+    for sid, state in intercom_sessions.items():
+        if sid == exclude_sid:
+            continue
+        if sid in connected_users and state.get('online'):
+            online.append(sid)
+    return online
+
+
+def _intercom_group_id_from_name(name: str) -> str:
+    base = re.sub(r'[^a-z0-9\-]+', '-', str(name or '').strip().lower())
+    base = re.sub(r'-{2,}', '-', base).strip('-')
+    if not base:
+        base = 'group'
+    used = _intercom_group_ids()
+    candidate = base
+    i = 2
+    while candidate in used:
+        candidate = f'{base}-{i}'
+        i += 1
+    return candidate
+
+
+@socketio.on('intercom_get_state')
+def on_intercom_get_state(data):
+    sid = request.sid
+    if sid not in connected_users:
+        return
+    _ensure_intercom_session(sid)
+    emit('intercom_state', _intercom_payload_for(sid))
+
+
+@socketio.on('intercom_join')
+def on_intercom_join(data):
+    sid = request.sid
+    if sid not in connected_users:
+        return
+    state = _ensure_intercom_session(sid)
+    peers = [{'sid': peer_sid, 'name': connected_users[peer_sid]['name']} for peer_sid in _intercom_online_sids(exclude_sid=sid)]
+    state['online'] = True
+    state['talking'] = False
+    emit('intercom_joined', {'peers': peers})
+    _broadcast_intercom_state()
+
+
+@socketio.on('intercom_leave')
+def on_intercom_leave(data):
+    sid = request.sid
+    if sid not in connected_users:
+        return
+    state = _ensure_intercom_session(sid)
+    state['online'] = False
+    state['talking'] = False
+    _broadcast_intercom_state()
+
+
+@socketio.on('intercom_set_listen_groups')
+def on_intercom_set_listen_groups(data):
+    sid = request.sid
+    if sid not in connected_users:
+        return
+    state = _ensure_intercom_session(sid)
+    state['listen_groups'] = _normalize_group_selection(data.get('groups', []))
+    _broadcast_intercom_state()
+
+
+@socketio.on('intercom_set_talk_groups')
+def on_intercom_set_talk_groups(data):
+    sid = request.sid
+    if sid not in connected_users:
+        return
+    state = _ensure_intercom_session(sid)
+    state['talk_groups'] = _normalize_group_selection(data.get('groups', []))
+    if not state['talk_groups']:
+        state['talking'] = False
+    _broadcast_intercom_state()
+
+
+@socketio.on('intercom_set_talking')
+def on_intercom_set_talking(data):
+    sid = request.sid
+    if sid not in connected_users:
+        return
+    state = _ensure_intercom_session(sid)
+    wants_talking = bool(data.get('talking', False))
+    state['talking'] = bool(state.get('online', False) and wants_talking and state.get('talk_groups'))
+    _broadcast_intercom_state()
+
+
+@socketio.on('intercom_group_create')
+def on_intercom_group_create(data):
+    if request.sid not in connected_users:
+        return
+    if not require_admin(data.get('token', '')):
+        emit('error', {'message': 'Geen beheerdersrechten'})
+        return
+    name = str(data.get('name', '')).strip()
+    if len(name) < 2 or len(name) > 40:
+        emit('error', {'message': 'Groepsnaam moet 2-40 tekens zijn'})
+        return
+    gid = _intercom_group_id_from_name(name)
+    PROJECT_CONFIG['intercom_groups'].append({'id': gid, 'name': name})
+    save_project_settings(ACTIVE_PROJECT)
+    _broadcast_intercom_state()
+
+
+@socketio.on('intercom_group_rename')
+def on_intercom_group_rename(data):
+    if request.sid not in connected_users:
+        return
+    if not require_admin(data.get('token', '')):
+        emit('error', {'message': 'Geen beheerdersrechten'})
+        return
+    gid = str(data.get('id', '')).strip().lower()
+    new_name = str(data.get('name', '')).strip()
+    if not gid or len(new_name) < 2 or len(new_name) > 40:
+        emit('error', {'message': 'Ongeldige groepsnaam'})
+        return
+    found = False
+    for group in PROJECT_CONFIG.get('intercom_groups', []):
+        if group.get('id') == gid:
+            group['name'] = new_name
+            found = True
+            break
+    if not found:
+        emit('error', {'message': 'Intercomgroep niet gevonden'})
+        return
+    save_project_settings(ACTIVE_PROJECT)
+    _broadcast_intercom_state()
+
+
+@socketio.on('intercom_group_delete')
+def on_intercom_group_delete(data):
+    if request.sid not in connected_users:
+        return
+    if not require_admin(data.get('token', '')):
+        emit('error', {'message': 'Geen beheerdersrechten'})
+        return
+    gid = str(data.get('id', '')).strip().lower()
+    groups = PROJECT_CONFIG.get('intercom_groups', [])
+    if len(groups) <= 1:
+        emit('error', {'message': 'Minimaal 1 intercomgroep vereist'})
+        return
+    next_groups = [g for g in groups if g.get('id') != gid]
+    if len(next_groups) == len(groups):
+        emit('error', {'message': 'Intercomgroep niet gevonden'})
+        return
+    PROJECT_CONFIG['intercom_groups'] = next_groups
+    for state in intercom_sessions.values():
+        state['listen_groups'] = _normalize_group_selection(state.get('listen_groups', []))
+        state['talk_groups'] = _normalize_group_selection(state.get('talk_groups', []))
+        if not state['talk_groups']:
+            state['talking'] = False
+    save_project_settings(ACTIVE_PROJECT)
+    _broadcast_intercom_state()
+
+
+@socketio.on('intercom_offer')
+def on_intercom_offer(data):
+    if request.sid not in connected_users:
+        return
+    target = data.get('target')
+    if target not in connected_users:
+        return
+    emit('intercom_offer', {'from': request.sid, 'sdp': data.get('sdp')}, to=target)
+
+
+@socketio.on('intercom_answer')
+def on_intercom_answer(data):
+    if request.sid not in connected_users:
+        return
+    target = data.get('target')
+    if target not in connected_users:
+        return
+    emit('intercom_answer', {'from': request.sid, 'sdp': data.get('sdp')}, to=target)
+
+
+@socketio.on('intercom_ice')
+def on_intercom_ice(data):
+    if request.sid not in connected_users:
+        return
+    target = data.get('target')
+    if target not in connected_users:
+        return
+    emit('intercom_ice', {'from': request.sid, 'candidate': data.get('candidate')}, to=target)
+
+
+# Legacy aliases
 @socketio.on('call_join')
 def on_call_join(data):
-    sid = request.sid
-    if sid not in connected_users: return
-    channel = connected_users[sid]['channel']
-    if channel not in call_participants: call_participants[channel] = {}
-    existing = [{'sid': s, 'name': n} for s, n in call_participants[channel].items()]
-    call_participants[channel][sid] = connected_users[sid]['name']
-    emit('call_joined', {'peers': existing}); _broadcast_call_state(channel)
+    on_intercom_join(data)
+
 
 @socketio.on('call_leave')
-def on_call_leave(data): _remove_from_call(request.sid)
+def on_call_leave(data):
+    on_intercom_leave(data)
+
 
 @socketio.on('call_offer')
-def on_call_offer(data): emit('call_offer', {'from': request.sid, 'sdp': data.get('sdp')}, to=data.get('target'))
+def on_call_offer(data):
+    on_intercom_offer(data)
+
 
 @socketio.on('call_answer')
-def on_call_answer(data): emit('call_answer', {'from': request.sid, 'sdp': data.get('sdp')}, to=data.get('target'))
+def on_call_answer(data):
+    on_intercom_answer(data)
+
 
 @socketio.on('call_ice')
-def on_call_ice(data): emit('call_ice', {'from': request.sid, 'candidate': data.get('candidate')}, to=data.get('target'))
+def on_call_ice(data):
+    on_intercom_ice(data)
 
 
 if __name__ == '__main__':
