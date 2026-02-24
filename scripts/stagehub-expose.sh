@@ -11,6 +11,7 @@ CF_SERVICE_NAME="cloudflared.service"
 CF_QUICK_SERVICE_NAME="stagehub-cloudflared-quick.service"
 CF_QUICK_SERVICE_FILE="/etc/systemd/system/${CF_QUICK_SERVICE_NAME}"
 STAGEHUB_HTTPS_BACKEND_PORT="8443"
+TAILSCALE_HTTPS_PORT="443"
 
 log() {
   printf '[stagehub-expose] %s\n' "$*"
@@ -386,10 +387,27 @@ tailscale_target_from_port() {
   fi
 }
 
+tailscale_clear_routes() {
+  local https_port="${1}"
+
+  # Explicit off commands first (matches the command Tailscale prints to users).
+  tailscale funnel --https="${https_port}" off >/dev/null 2>&1 || true
+  tailscale serve --https="${https_port}" off >/dev/null 2>&1 || true
+
+  # Older CLIs may use positional syntax.
+  tailscale funnel "${https_port}" off >/dev/null 2>&1 || true
+  tailscale serve "${https_port}" off >/dev/null 2>&1 || true
+
+  # Safety net for any leftover mappings.
+  tailscale funnel reset >/dev/null 2>&1 || true
+  tailscale serve reset >/dev/null 2>&1 || true
+}
+
 tailscale_enable() {
   local mode="$1"
   local local_port="$2"
   local target
+  local https_port="${TAILSCALE_HTTPS_PORT}"
   case "${mode}" in
     public|private) ;;
     *) die "Invalid Tailscale mode: ${mode}" ;;
@@ -402,17 +420,21 @@ tailscale_enable() {
 
   target="$(tailscale_target_from_port "${local_port}")"
 
-  tailscale funnel reset >/dev/null 2>&1 || true
-  tailscale serve reset >/dev/null 2>&1 || true
+  tailscale_clear_routes "${https_port}"
 
   if [ "${mode}" = "public" ]; then
-    # Prefer direct funnel target. Fallback to serve+funnel-on for older CLI behavior.
-    if ! tailscale funnel --bg "${target}" >/dev/null 2>&1; then
-      tailscale serve --bg "${target}" >/dev/null
-      tailscale funnel --bg on >/dev/null 2>&1 || tailscale funnel --bg 443 on >/dev/null
+    # Configure proxy on a stable public https port and then turn funnel on.
+    if ! tailscale serve --bg --https="${https_port}" "${target}" >/dev/null 2>&1; then
+      tailscale serve --bg "${target}" >/dev/null 2>&1 || die "tailscale serve failed."
     fi
+    tailscale funnel --bg --https="${https_port}" on >/dev/null 2>&1 \
+      || tailscale funnel --bg "${https_port}" on >/dev/null 2>&1 \
+      || tailscale funnel --bg on >/dev/null 2>&1 \
+      || die "tailscale funnel enable failed."
   else
-    tailscale serve --bg "${target}" >/dev/null
+    tailscale serve --bg --https="${https_port}" "${target}" >/dev/null 2>&1 \
+      || tailscale serve --bg "${target}" >/dev/null 2>&1 \
+      || die "tailscale serve enable failed."
   fi
 
   TS_MODE="${mode}"
@@ -421,20 +443,22 @@ tailscale_enable() {
 
   log "Tailscale enabled (mode: ${mode}, target: ${target})."
   if [ "${mode}" = "public" ]; then
-    log "If link fails, verify Funnel is allowed in Tailscale admin and try: tailscale funnel status"
+    log "Public endpoint uses HTTPS port ${https_port}. If link fails, verify Funnel policy and run: tailscale funnel status"
   fi
 }
 
 tailscale_disable() {
   if have_cmd tailscale; then
-    tailscale funnel reset >/dev/null 2>&1 || true
-    tailscale serve reset >/dev/null 2>&1 || true
+    tailscale_clear_routes "${TAILSCALE_HTTPS_PORT}"
+    if valid_port "${TS_LOCAL_PORT:-}" && [ "${TS_LOCAL_PORT}" != "${TAILSCALE_HTTPS_PORT}" ]; then
+      tailscale_clear_routes "${TS_LOCAL_PORT}"
+    fi
   fi
 
   unset TS_MODE
   unset TS_LOCAL_PORT
   save_state
-  log "Tailscale serve/funnel disabled."
+  log "Tailscale serve/funnel disabled (including funnel --https=${TAILSCALE_HTTPS_PORT} off)."
 }
 
 tailscale_status() {

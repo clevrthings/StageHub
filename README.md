@@ -135,6 +135,8 @@ stagehub expose tailscale enable --mode private --local-port 8443
 stagehub expose tailscale enable --mode public --local-port 8443
 ```
 
+StageHub configures Tailscale Funnel on public HTTPS port `443` and proxies to your chosen local backend port.
+
 Status and routes:
 
 ```bash
@@ -148,6 +150,12 @@ Disable:
 
 ```bash
 stagehub expose tailscale disable
+```
+
+Equivalent manual cleanup command used under the hood:
+
+```bash
+tailscale funnel --https=443 off
 ```
 
 ### Troubleshooting
@@ -177,6 +185,15 @@ tailscale status
 ```bash
 stagehub expose tailscale disable
 stagehub expose tailscale enable --mode public --local-port 8443
+```
+
+To force-clear old routes manually:
+
+```bash
+tailscale funnel --https=443 off
+tailscale serve --https=443 off
+tailscale funnel reset
+tailscale serve reset
 ```
 
 4. Verify StageHub is running:

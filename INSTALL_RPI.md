@@ -37,5 +37,6 @@ stagehub
 
 `stagehub expose` without extra args starts an interactive menu (Cloudflare/Tailscale).  
 Cloudflare quick one-click mode is available and prints a public `trycloudflare.com` URL.
+Tailscale public mode uses Funnel on HTTPS port `443`; `stagehub expose tailscale disable` also clears that funnel mapping.
 
 `stagehub uninstall` is interactive by default and can keep backups under `/var/backups/stagehub-<timestamp>/`.
