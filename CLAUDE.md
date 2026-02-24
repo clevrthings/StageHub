@@ -47,3 +47,5 @@ stagehub update
 stagehub expose
 stagehub uninstall
 ```
+
+Interactieve `stagehub expose` en `stagehub uninstall` menu's ondersteunen pijltjestoetsen + Enter.

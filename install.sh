@@ -22,16 +22,33 @@ LEGACY_CLI_BIN="/usr/local/bin/${LEGACY_SERVICE_NAME}"
 INTERACTIVE_INPUT="/dev/tty"
 INSTALL_MODE="new"
 INSTALL_ACTION="install"
-INSTALLER_VERSION="2026-02-24-12"
-STAGEHUB_VERSION="1.2.6"
+INSTALLER_VERSION="2026-02-24-13"
+STAGEHUB_VERSION="1.3.0"
+
+COLOR_RESET=""
+COLOR_BOLD=""
+COLOR_CYAN=""
+COLOR_GREEN=""
+COLOR_YELLOW=""
+COLOR_RED=""
+COLOR_BLUE=""
+if [ -t 1 ]; then
+  COLOR_RESET=$'\033[0m'
+  COLOR_BOLD=$'\033[1m'
+  COLOR_CYAN=$'\033[36m'
+  COLOR_GREEN=$'\033[32m'
+  COLOR_YELLOW=$'\033[33m'
+  COLOR_RED=$'\033[31m'
+  COLOR_BLUE=$'\033[34m'
+fi
 
 
 log() {
-  printf '[stagehub-install] %s\n' "$*"
+  printf '%b[stagehub-install]%b %s\n' "${COLOR_CYAN}" "${COLOR_RESET}" "$*"
 }
 
 die() {
-  printf '[stagehub-install] ERROR: %s\n' "$*" >&2
+  printf '%b[stagehub-install] ERROR:%b %s\n' "${COLOR_RED}" "${COLOR_RESET}" "$*" >&2
   exit 1
 }
 
@@ -43,6 +60,90 @@ require_root() {
 
 have_cmd() {
   command -v "$1" >/dev/null 2>&1
+}
+
+is_menu_tty() {
+  [ -t 1 ] && [ -r "${INTERACTIVE_INPUT}" ]
+}
+
+run_step() {
+  local label="$1"
+  shift
+  local tmp
+  tmp="$(mktemp)"
+  if "$@" >"${tmp}" 2>&1; then
+    printf '  %b[OK]%b %s\n' "${COLOR_GREEN}" "${COLOR_RESET}" "${label}"
+  else
+    printf '  %b[FAIL]%b %s\n' "${COLOR_RED}" "${COLOR_RESET}" "${label}" >&2
+    sed -n '1,120p' "${tmp}" >&2 || true
+    rm -f "${tmp}" || true
+    return 1
+  fi
+  rm -f "${tmp}" || true
+}
+
+menu_select() {
+  local title="$1"
+  local default_idx="$2"
+  shift 2
+  local -a options=("$@")
+  local count="${#options[@]}"
+  local idx="${default_idx}"
+  local key=""
+  local next=""
+  local lines=0
+  local n=0
+
+  [ "${count}" -gt 0 ] || die "menu_select requires at least one option."
+  if [ "${idx}" -lt 0 ] || [ "${idx}" -ge "${count}" ]; then
+    idx=0
+  fi
+
+  if ! is_menu_tty; then
+    printf '%s\n' "${title}"
+    for n in "${!options[@]}"; do
+      printf '  %d) %s\n' "$((n + 1))" "${options[$n]}"
+    done
+    while true; do
+      key="$(prompt_read "Select [1-${count}]")"
+      if [[ "${key}" =~ ^[0-9]+$ ]] && [ "${key}" -ge 1 ] && [ "${key}" -le "${count}" ]; then
+        printf '%s\n' "${key}"
+        return
+      fi
+    done
+  fi
+
+  lines=$((count + 1))
+  while true; do
+    printf '%b%s%b\n' "${COLOR_BOLD}${COLOR_BLUE}" "${title}" "${COLOR_RESET}"
+    for n in "${!options[@]}"; do
+      if [ "${n}" -eq "${idx}" ]; then
+        printf '  %b> %s%b\n' "${COLOR_BOLD}${COLOR_GREEN}" "${options[$n]}" "${COLOR_RESET}"
+      else
+        printf '    %s\n' "${options[$n]}"
+      fi
+    done
+
+    IFS= read -rsn1 key < "${INTERACTIVE_INPUT}" || true
+    if [ "${key}" = $'\x1b' ]; then
+      IFS= read -rsn1 -t 0.05 next < "${INTERACTIVE_INPUT}" || true
+      if [ "${next}" = "[" ]; then
+        IFS= read -rsn1 -t 0.05 next < "${INTERACTIVE_INPUT}" || true
+        case "${next}" in
+          A) idx=$(( (idx - 1 + count) % count )) ;;
+          B) idx=$(( (idx + 1) % count )) ;;
+        esac
+      fi
+    elif [ -z "${key}" ] || [ "${key}" = $'\n' ]; then
+      printf '%s\n' "$((idx + 1))"
+      return
+    elif [[ "${key}" =~ ^[1-9]$ ]] && [ "${key}" -le "${count}" ]; then
+      printf '%s\n' "${key}"
+      return
+    fi
+
+    printf '\033[%dA\033[J' "${lines}"
+  done
 }
 
 parse_args() {
@@ -194,41 +295,37 @@ ensure_packages() {
     esac
   fi
 
-  log "Installing system dependencies (git, curl, python3, venv)..."
+  log "System checks and dependencies"
   export DEBIAN_FRONTEND=noninteractive
-  apt-get update -y
-  apt-get install -y git curl ca-certificates python3 python3-venv python3-pip
+  run_step "Refreshing apt package index" apt-get -y -qq update
+  run_step "Installing git/curl/python dependencies" apt-get -y -qq install git curl ca-certificates python3 python3-venv python3-pip
 }
 
 clone_repo() {
   local url="https://github.com/${REPO_OWNER}/${REPO_NAME}.git"
-  log "Cloning ${url} (${BRANCH}) into ${INSTALL_DIR}"
-  git clone --branch "${BRANCH}" --depth 1 "${url}" "${INSTALL_DIR}"
+  run_step "Cloning ${REPO_NAME} (${BRANCH})" git clone --quiet --branch "${BRANCH}" --depth 1 "${url}" "${INSTALL_DIR}"
 }
 
 update_repo() {
-  log "Updating existing repository in ${INSTALL_DIR}"
+  log "Updating repository in ${INSTALL_DIR}"
   ensure_git_safe_directory
-  git -c safe.directory="${INSTALL_DIR}" -C "${INSTALL_DIR}" fetch origin "${BRANCH}"
-  git -c safe.directory="${INSTALL_DIR}" -C "${INSTALL_DIR}" checkout -B "${BRANCH}" "origin/${BRANCH}"
-  git -c safe.directory="${INSTALL_DIR}" -C "${INSTALL_DIR}" reset --hard "origin/${BRANCH}"
+  run_step "Fetching latest source" git -c safe.directory="${INSTALL_DIR}" -C "${INSTALL_DIR}" fetch --quiet origin "${BRANCH}"
+  run_step "Switching to ${BRANCH}" git -c safe.directory="${INSTALL_DIR}" -C "${INSTALL_DIR}" checkout -q -B "${BRANCH}" "origin/${BRANCH}"
+  run_step "Syncing working tree" git -c safe.directory="${INSTALL_DIR}" -C "${INSTALL_DIR}" reset --hard "origin/${BRANCH}"
 }
 
 choose_install_mode() {
-  local mode=""
+  local mode_choice=""
   local confirm=""
   migrate_legacy_install_if_needed
   if [ -d "${INSTALL_DIR}/.git" ]; then
     log "Existing StageHub installation detected at ${INSTALL_DIR}"
     while true; do
-      cat <<'EOF'
-Choose install mode:
-  1) Update existing installation (keep data/config)
-  2) Clean reinstall (delete installation folder)
-  3) Cancel
-EOF
-      mode="$(prompt_read "Select [1/2/3]: ")"
-      case "${mode:-}" in
+      mode_choice="$(menu_select "Choose install mode (Use arrows + Enter)" 0 \
+        "Update existing installation (keep data/config)" \
+        "Clean reinstall (delete installation folder)" \
+        "Cancel")"
+      case "${mode_choice:-}" in
         1)
           INSTALL_MODE="update"
           update_repo
@@ -453,10 +550,10 @@ configure_main_config() {
 }
 
 setup_python_env() {
-  log "Creating virtual environment and installing Python dependencies..."
-  python3 -m venv "${INSTALL_DIR}/.venv"
-  "${INSTALL_DIR}/.venv/bin/pip" install --upgrade pip
-  "${INSTALL_DIR}/.venv/bin/pip" install -r "${INSTALL_DIR}/requirements.txt"
+  log "Python environment"
+  run_step "Creating virtual environment" python3 -m venv "${INSTALL_DIR}/.venv"
+  run_step "Upgrading pip" "${INSTALL_DIR}/.venv/bin/pip" --disable-pip-version-check -q install --upgrade pip
+  run_step "Installing Python requirements" "${INSTALL_DIR}/.venv/bin/pip" --disable-pip-version-check -q install -r "${INSTALL_DIR}/requirements.txt"
 }
 
 finish_with_preserved_settings() {
@@ -597,10 +694,10 @@ EOF
 }
 
 enable_and_start_service() {
-  log "Enabling and starting ${SERVICE_NAME}.service..."
-  systemctl daemon-reload
-  systemctl enable "${SERVICE_NAME}.service"
-  systemctl restart "${SERVICE_NAME}.service"
+  log "Service setup"
+  run_step "Reloading systemd configuration" systemctl daemon-reload
+  run_step "Enabling ${SERVICE_NAME}.service" systemctl enable "${SERVICE_NAME}.service"
+  run_step "Restarting ${SERVICE_NAME}.service" systemctl restart "${SERVICE_NAME}.service"
   sleep 1
   if ! systemctl is-active --quiet "${SERVICE_NAME}.service"; then
     systemctl --no-pager --full status "${SERVICE_NAME}.service" || true
@@ -641,6 +738,7 @@ main() {
   require_root
   parse_args "$@"
   refresh_installer_if_needed "$@"
+  printf '\n%bStageHub Installer%b  version %s\n' "${COLOR_BOLD}${COLOR_BLUE}" "${COLOR_RESET}" "${INSTALLER_VERSION}"
   log "Installer version: ${INSTALLER_VERSION}"
   log "StageHub version: ${STAGEHUB_VERSION}"
   have_cmd systemctl || die "systemctl not found. This installer requires systemd."

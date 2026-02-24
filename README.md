@@ -12,6 +12,7 @@ The installer will:
 
 - download/update the latest code from GitHub
 - create a Python virtual environment and install dependencies
+- show compact, colored progress steps during install/update (instead of verbose command output)
 - ask for main config values (`port`, `username_case_sensitive`) with defaults
 - install and enable a `systemd` service so StageHub auto-starts after reboot
 - automatically migrate legacy `/opt/stagechat` installs/data to `/opt/stagehub`
@@ -54,6 +55,7 @@ stagehub expose
 ```
 
 `stagehub expose` starts an interactive menu so users do not need extra arguments.
+Use arrow keys + Enter to navigate interactive CLI menus.
 
 You can always check current state with:
 
@@ -221,6 +223,8 @@ stagehub expose tailscale disable
 ```bash
 stagehub uninstall
 ```
+
+`stagehub uninstall` interactive prompts also support arrow-key selection.
 
 Non-interactive examples:
 

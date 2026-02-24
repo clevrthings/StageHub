@@ -13,12 +13,27 @@ CF_QUICK_SERVICE_FILE="/etc/systemd/system/${CF_QUICK_SERVICE_NAME}"
 STAGEHUB_HTTPS_BACKEND_PORT="8443"
 TAILSCALE_HTTPS_PORT="443"
 
+COLOR_RESET=""
+COLOR_BOLD=""
+COLOR_CYAN=""
+COLOR_GREEN=""
+COLOR_RED=""
+COLOR_BLUE=""
+if [ -t 1 ]; then
+  COLOR_RESET=$'\033[0m'
+  COLOR_BOLD=$'\033[1m'
+  COLOR_CYAN=$'\033[36m'
+  COLOR_GREEN=$'\033[32m'
+  COLOR_RED=$'\033[31m'
+  COLOR_BLUE=$'\033[34m'
+fi
+
 log() {
-  printf '[stagehub-expose] %s\n' "$*"
+  printf '%b[stagehub-expose]%b %s\n' "${COLOR_CYAN}" "${COLOR_RESET}" "$*"
 }
 
 die() {
-  printf '[stagehub-expose] ERROR: %s\n' "$*" >&2
+  printf '%b[stagehub-expose] ERROR:%b %s\n' "${COLOR_RED}" "${COLOR_RESET}" "$*" >&2
   exit 1
 }
 
@@ -30,6 +45,74 @@ require_root() {
   if [ "${EUID:-$(id -u)}" -ne 0 ]; then
     die "Run as root (or via sudo)."
   fi
+}
+
+is_menu_tty() {
+  [ -t 1 ] && [ -r /dev/tty ]
+}
+
+menu_select() {
+  local title="$1"
+  local default_idx="$2"
+  shift 2
+  local -a options=("$@")
+  local count="${#options[@]}"
+  local idx="${default_idx}"
+  local key=""
+  local next=""
+  local lines=0
+  local n=0
+
+  [ "${count}" -gt 0 ] || die "menu_select requires at least one option."
+  if [ "${idx}" -lt 0 ] || [ "${idx}" -ge "${count}" ]; then
+    idx=0
+  fi
+
+  if ! is_menu_tty; then
+    printf '%s\n' "${title}"
+    for n in "${!options[@]}"; do
+      printf '  %d) %s\n' "$((n + 1))" "${options[$n]}"
+    done
+    while true; do
+      key="$(ask_input "Select [1-${count}]")"
+      if [[ "${key}" =~ ^[0-9]+$ ]] && [ "${key}" -ge 1 ] && [ "${key}" -le "${count}" ]; then
+        printf '%s\n' "${key}"
+        return
+      fi
+    done
+  fi
+
+  lines=$((count + 1))
+  while true; do
+    printf '%b%s%b\n' "${COLOR_BOLD}${COLOR_BLUE}" "${title}" "${COLOR_RESET}"
+    for n in "${!options[@]}"; do
+      if [ "${n}" -eq "${idx}" ]; then
+        printf '  %b> %s%b\n' "${COLOR_BOLD}${COLOR_GREEN}" "${options[$n]}" "${COLOR_RESET}"
+      else
+        printf '    %s\n' "${options[$n]}"
+      fi
+    done
+
+    IFS= read -rsn1 key < /dev/tty || true
+    if [ "${key}" = $'\x1b' ]; then
+      IFS= read -rsn1 -t 0.05 next < /dev/tty || true
+      if [ "${next}" = "[" ]; then
+        IFS= read -rsn1 -t 0.05 next < /dev/tty || true
+        case "${next}" in
+          A) idx=$(( (idx - 1 + count) % count )) ;;
+          B) idx=$(( (idx + 1) % count )) ;;
+        esac
+      fi
+    elif [ -z "${key}" ] || [ "${key}" = $'\n' ]; then
+      printf '%s\n' "$((idx + 1))"
+      return
+    elif [[ "${key}" =~ ^[1-9]$ ]] && [ "${key}" -le "${count}" ]; then
+      printf '%s\n' "${key}"
+      return
+    fi
+
+    printf '\033[%dA\033[J' "${lines}"
+  done
 }
 
 usage() {
@@ -48,6 +131,7 @@ Usage:
 
 Notes:
   - `stagehub expose` starts an interactive menu (no extra args needed).
+  - Interactive menu supports arrow keys + Enter.
   - Cloudflare `quick` mode is one-click and gives a trycloudflare.com URL.
 USAGE
 }
@@ -501,11 +585,11 @@ status_all() {
 interactive_cloudflare_enable() {
   local choice=""
   local token=""
-  printf '\nCloudflare enable mode:\n'
-  printf '  1) Quick one-click public link (trycloudflare)\n'
-  printf '  2) Public custom-domain tunnel (token required)\n'
-  printf '  3) Access-ready custom-domain tunnel (token required)\n'
-  choice="$(ask_input 'Select [1/2/3]' '1')"
+  printf '\n'
+  choice="$(menu_select "Cloudflare enable mode (Use arrows + Enter)" 0 \
+    "Quick one-click public link (trycloudflare)" \
+    "Public custom-domain tunnel (token required)" \
+    "Access-ready custom-domain tunnel (token required)")"
   case "${choice}" in
     1)
       cloudflare_enable "quick" ""
@@ -526,12 +610,12 @@ interactive_cloudflare_enable() {
 
 interactive_cloudflare_menu() {
   local choice=""
-  printf '\nCloudflare menu:\n'
-  printf '  1) Enable\n'
-  printf '  2) Disable\n'
-  printf '  3) Status\n'
-  printf '  4) Back\n'
-  choice="$(ask_input 'Select [1/2/3/4]' '1')"
+  printf '\n'
+  choice="$(menu_select "Cloudflare menu (Use arrows + Enter)" 0 \
+    "Enable" \
+    "Disable" \
+    "Status" \
+    "Back")"
   case "${choice}" in
     1) interactive_cloudflare_enable ;;
     2) cloudflare_disable ;;
@@ -546,10 +630,10 @@ interactive_tailscale_enable() {
   local mode="public"
   local local_port="${STAGEHUB_HTTPS_BACKEND_PORT}"
 
-  printf '\nTailscale enable mode:\n'
-  printf '  1) Public internet link (Funnel)\n'
-  printf '  2) Private tailnet-only link (Serve)\n'
-  choice="$(ask_input 'Select [1/2]' '1')"
+  printf '\n'
+  choice="$(menu_select "Tailscale enable mode (Use arrows + Enter)" 0 \
+    "Public internet link (Funnel)" \
+    "Private tailnet-only link (Serve)")"
   case "${choice}" in
     1) mode="public" ;;
     2) mode="private" ;;
@@ -563,12 +647,12 @@ interactive_tailscale_enable() {
 
 interactive_tailscale_menu() {
   local choice=""
-  printf '\nTailscale menu:\n'
-  printf '  1) Enable\n'
-  printf '  2) Disable\n'
-  printf '  3) Status\n'
-  printf '  4) Back\n'
-  choice="$(ask_input 'Select [1/2/3/4]' '1')"
+  printf '\n'
+  choice="$(menu_select "Tailscale menu (Use arrows + Enter)" 0 \
+    "Enable" \
+    "Disable" \
+    "Status" \
+    "Back")"
   case "${choice}" in
     1) interactive_tailscale_enable ;;
     2) tailscale_disable ;;
@@ -581,12 +665,12 @@ interactive_tailscale_menu() {
 interactive_main_menu() {
   local choice=""
   while true; do
-    printf '\nStageHub Expose Menu\n'
-    printf '  1) Status\n'
-    printf '  2) Cloudflare\n'
-    printf '  3) Tailscale\n'
-    printf '  4) Exit\n'
-    choice="$(ask_input 'Select [1/2/3/4]' '1')"
+    printf '\n'
+    choice="$(menu_select "StageHub Expose Menu (Use arrows + Enter)" 0 \
+      "Status" \
+      "Cloudflare" \
+      "Tailscale" \
+      "Exit")"
     case "${choice}" in
       1) status_all ;;
       2) interactive_cloudflare_menu ;;

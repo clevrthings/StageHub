@@ -14,17 +14,100 @@ EXPOSE_MODE=""
 REMOVE_EXPOSE_PACKAGES=0
 BACKUP_DIR=""
 
+COLOR_RESET=""
+COLOR_BOLD=""
+COLOR_CYAN=""
+COLOR_GREEN=""
+COLOR_RED=""
+COLOR_BLUE=""
+if [ -t 1 ]; then
+  COLOR_RESET=$'\033[0m'
+  COLOR_BOLD=$'\033[1m'
+  COLOR_CYAN=$'\033[36m'
+  COLOR_GREEN=$'\033[32m'
+  COLOR_RED=$'\033[31m'
+  COLOR_BLUE=$'\033[34m'
+fi
+
 log() {
-  printf '[stagehub-uninstall] %s\n' "$*"
+  printf '%b[stagehub-uninstall]%b %s\n' "${COLOR_CYAN}" "${COLOR_RESET}" "$*"
 }
 
 die() {
-  printf '[stagehub-uninstall] ERROR: %s\n' "$*" >&2
+  printf '%b[stagehub-uninstall] ERROR:%b %s\n' "${COLOR_RED}" "${COLOR_RESET}" "$*" >&2
   exit 1
 }
 
 have_cmd() {
   command -v "$1" >/dev/null 2>&1
+}
+
+is_menu_tty() {
+  [ -t 1 ] && [ -r /dev/tty ]
+}
+
+menu_select() {
+  local title="$1"
+  local default_idx="$2"
+  shift 2
+  local -a options=("$@")
+  local count="${#options[@]}"
+  local idx="${default_idx}"
+  local key=""
+  local next=""
+  local lines=0
+  local n=0
+
+  [ "${count}" -gt 0 ] || die "menu_select requires at least one option."
+  if [ "${idx}" -lt 0 ] || [ "${idx}" -ge "${count}" ]; then
+    idx=0
+  fi
+
+  if ! is_menu_tty; then
+    printf '%s\n' "${title}"
+    for n in "${!options[@]}"; do
+      printf '  %d) %s\n' "$((n + 1))" "${options[$n]}"
+    done
+    while true; do
+      read -r -p "Select [1-${count}]: " key < /dev/tty || true
+      if [[ "${key}" =~ ^[0-9]+$ ]] && [ "${key}" -ge 1 ] && [ "${key}" -le "${count}" ]; then
+        printf '%s\n' "${key}"
+        return
+      fi
+    done
+  fi
+
+  lines=$((count + 1))
+  while true; do
+    printf '%b%s%b\n' "${COLOR_BOLD}${COLOR_BLUE}" "${title}" "${COLOR_RESET}"
+    for n in "${!options[@]}"; do
+      if [ "${n}" -eq "${idx}" ]; then
+        printf '  %b> %s%b\n' "${COLOR_BOLD}${COLOR_GREEN}" "${options[$n]}" "${COLOR_RESET}"
+      else
+        printf '    %s\n' "${options[$n]}"
+      fi
+    done
+
+    IFS= read -rsn1 key < /dev/tty || true
+    if [ "${key}" = $'\x1b' ]; then
+      IFS= read -rsn1 -t 0.05 next < /dev/tty || true
+      if [ "${next}" = "[" ]; then
+        IFS= read -rsn1 -t 0.05 next < /dev/tty || true
+        case "${next}" in
+          A) idx=$(( (idx - 1 + count) % count )) ;;
+          B) idx=$(( (idx + 1) % count )) ;;
+        esac
+      fi
+    elif [ -z "${key}" ] || [ "${key}" = $'\n' ]; then
+      printf '%s\n' "$((idx + 1))"
+      return
+    elif [[ "${key}" =~ ^[1-9]$ ]] && [ "${key}" -le "${count}" ]; then
+      printf '%s\n' "${key}"
+      return
+    fi
+
+    printf '\033[%dA\033[J' "${lines}"
+  done
 }
 
 require_root() {
@@ -45,6 +128,8 @@ Options:
   --remove-expose            Disable Cloudflare/Tailscale exposure.
   --keep-expose              Leave Cloudflare/Tailscale as-is.
   --remove-expose-packages   Also uninstall cloudflared/tailscale packages (implies --remove-expose).
+
+Interactive prompts support arrow keys + Enter.
 USAGE
 }
 
@@ -92,7 +177,19 @@ ask_yes_no() {
   local prompt="$1"
   local default="${2:-N}"
   local reply=""
+  local choice=""
   local suffix="[y/N]"
+
+  if is_menu_tty; then
+    if [ "${default}" = "Y" ]; then
+      choice="$(menu_select "${prompt}" 0 "Yes" "No")"
+    else
+      choice="$(menu_select "${prompt}" 1 "Yes" "No")"
+    fi
+    [ "${choice}" = "1" ]
+    return
+  fi
+
   if [ "${default}" = "Y" ]; then
     suffix="[Y/n]"
   fi
@@ -101,12 +198,8 @@ ask_yes_no() {
     reply="${default}"
   fi
   case "${reply}" in
-    y|Y|yes|YES)
-      return 0
-      ;;
-    *)
-      return 1
-      ;;
+    y|Y|yes|YES) return 0 ;;
+    *) return 1 ;;
   esac
 }
 

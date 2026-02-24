@@ -11,6 +11,7 @@ What it does:
 - clones or updates StageHub in `/opt/stagehub`
 - migrates old `/opt/stagechat` installations and data automatically
 - creates a Python virtual environment and installs dependencies
+- shows compact, colored checklist-style progress output during install/update
 - asks for main config values (`port`, `username_case_sensitive`) with defaults
 - creates and enables a `systemd` service so StageHub restarts automatically
 - installs the `stagehub` command in `/usr/local/bin` (incl. update/expose/uninstall commands)
@@ -37,6 +38,7 @@ stagehub
 `stagehub` without arguments shows help.
 
 `stagehub expose` without extra args starts an interactive menu (Cloudflare/Tailscale).  
+Use arrow keys + Enter to choose options.
 Cloudflare quick one-click mode is available and prints a public `trycloudflare.com` URL.
 Tailscale public mode uses Funnel on HTTPS port `443`; `stagehub expose tailscale disable` also clears that funnel mapping.
 
