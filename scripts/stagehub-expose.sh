@@ -719,7 +719,6 @@ interactive_cloudflare_menu() {
 interactive_tailscale_enable() {
   local choice=""
   local mode="public"
-  local local_port="${STAGEHUB_HTTPS_BACKEND_PORT}"
 
   printf '\n'
   choice="$(menu_select "Tailscale enable mode (Use arrows + Enter)" 0 \
@@ -731,9 +730,7 @@ interactive_tailscale_enable() {
     *) die "Invalid selection." ;;
   esac
 
-  local_port="$(ask_input 'Local backend port (recommended 8443)' "${STAGEHUB_HTTPS_BACKEND_PORT}")"
-  valid_port "${local_port}" || die "Invalid local backend port: ${local_port}"
-  tailscale_enable "${mode}" "${local_port}"
+  tailscale_enable "${mode}" "${STAGEHUB_HTTPS_BACKEND_PORT}"
 }
 
 interactive_tailscale_menu() {

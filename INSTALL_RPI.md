@@ -41,6 +41,7 @@ stagehub
 Use arrow keys + Enter to choose options.
 Cloudflare quick one-click mode is available and prints a public `trycloudflare.com` URL.
 Tailscale public mode uses Funnel on HTTPS port `443`; `stagehub expose tailscale disable` also clears that funnel mapping.
+Interactive Tailscale enable uses the internal StageHub backend port `8443` automatically.
 On Tailscale enable, StageHub also prints the detected `https://<device>.ts.net` address.
 
 `stagehub uninstall` is interactive by default and can keep backups under `/var/backups/stagehub-<timestamp>/`.

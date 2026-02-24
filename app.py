@@ -35,7 +35,7 @@ CONFIG_FILE   = os.path.join(BASE_DIR, 'config.json')
 CERT_FILE     = os.path.join(BASE_DIR, 'cert.pem')
 KEY_FILE      = os.path.join(BASE_DIR, 'key.pem')
 MAX_HISTORY   = 200
-APP_VERSION   = '1.3.4'
+APP_VERSION   = '1.3.5'
 
 DEFAULT_CHANNELS = ['algemeen', 'foh', 'podium', 'licht']
 DEFAULT_INTERCOM_GROUP = {'id': 'all-call', 'name': 'All Call'}

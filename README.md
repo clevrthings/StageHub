@@ -140,7 +140,7 @@ stagehub expose tailscale enable --mode private --local-port 8443
 stagehub expose tailscale enable --mode public --local-port 8443
 ```
 
-StageHub configures Tailscale Funnel on public HTTPS port `443` and proxies to your chosen local backend port.
+StageHub configures Tailscale Funnel on public HTTPS port `443` and proxies to the StageHub backend on `8443` (interactive mode uses this automatically).
 After enable, StageHub prints the detected Tailscale URL (`https://<device>.ts.net`).
 
 Status and routes:
