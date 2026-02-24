@@ -8,6 +8,9 @@ STATE_FILE="${STATE_DIR}/expose-state.env"
 SERVICE_NAME="stagehub.service"
 
 CF_SERVICE_NAME="cloudflared.service"
+CF_QUICK_SERVICE_NAME="stagehub-cloudflared-quick.service"
+CF_QUICK_SERVICE_FILE="/etc/systemd/system/${CF_QUICK_SERVICE_NAME}"
+STAGEHUB_HTTPS_BACKEND_PORT="8443"
 
 log() {
   printf '[stagehub-expose] %s\n' "$*"
@@ -31,14 +34,34 @@ require_root() {
 usage() {
   cat <<'USAGE'
 Usage:
+  stagehub expose
   stagehub expose status
-  stagehub expose cloudflare enable [--token <token>] [--mode public|access-ready]
+  stagehub expose cloudflare
+  stagehub expose cloudflare enable [--mode quick|public|access-ready] [--token <token>]
   stagehub expose cloudflare disable
   stagehub expose cloudflare status
+  stagehub expose tailscale
   stagehub expose tailscale enable [--mode public|private] [--local-port <port>]
   stagehub expose tailscale disable
   stagehub expose tailscale status
+
+Notes:
+  - `stagehub expose` starts an interactive menu (no extra args needed).
+  - Cloudflare `quick` mode is one-click and gives a trycloudflare.com URL.
 USAGE
+}
+
+ask_input() {
+  local prompt="$1"
+  local default="${2:-}"
+  local out=""
+  if [ -n "${default}" ]; then
+    read -r -p "${prompt} [${default}]: " out < /dev/tty || true
+    [ -n "${out}" ] || out="${default}"
+  else
+    read -r -p "${prompt}: " out < /dev/tty || true
+  fi
+  printf '%s\n' "${out}"
 }
 
 valid_port() {
@@ -129,7 +152,62 @@ EOF
   have_cmd cloudflared || die "cloudflared install failed."
 }
 
-cloudflare_enable() {
+write_cloudflare_quick_service() {
+  local cloudflared_bin
+  cloudflared_bin="$(command -v cloudflared)"
+  cat > "${CF_QUICK_SERVICE_FILE}" <<EOF
+[Unit]
+Description=StageHub Cloudflare Quick Tunnel
+After=network-online.target ${SERVICE_NAME}
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=${cloudflared_bin} tunnel --no-autoupdate --url https://127.0.0.1:${STAGEHUB_HTTPS_BACKEND_PORT} --no-tls-verify
+Restart=always
+RestartSec=2
+
+[Install]
+WantedBy=multi-user.target
+EOF
+}
+
+cloudflare_quick_url() {
+  if ! have_cmd journalctl; then
+    return
+  fi
+  journalctl -u "${CF_QUICK_SERVICE_NAME}" -n 120 --no-pager 2>/dev/null \
+    | sed -n 's#.*\(https://[a-z0-9-]\+\.trycloudflare\.com\).*#\1#p' \
+    | tail -n1
+}
+
+cloudflare_enable_quick() {
+  ensure_stagehub_running
+  ensure_cloudflared_installed
+
+  if have_cmd systemctl; then
+    systemctl disable --now "${CF_SERVICE_NAME}" >/dev/null 2>&1 || true
+  fi
+
+  write_cloudflare_quick_service
+  systemctl daemon-reload
+  systemctl enable --now "${CF_QUICK_SERVICE_NAME}"
+
+  CF_MODE="quick"
+  save_state
+
+  sleep 2
+  local url=""
+  url="$(cloudflare_quick_url || true)"
+  log "Cloudflare quick tunnel enabled."
+  if [ -n "${url}" ]; then
+    log "Public URL: ${url}"
+  else
+    log "Quick URL not parsed yet. Check logs: journalctl -u ${CF_QUICK_SERVICE_NAME} -n 100 --no-pager"
+  fi
+}
+
+cloudflare_enable_token() {
   local mode="$1"
   local token="$2"
   case "${mode}" in
@@ -141,12 +219,13 @@ cloudflare_enable() {
   ensure_cloudflared_installed
 
   if [ -z "${token}" ]; then
-    if [ -t 0 ] || [ -r /dev/tty ]; then
-      read -r -s -p "Cloudflare tunnel token: " token < /dev/tty || true
-      printf '\n'
-    fi
+    read -r -s -p "Cloudflare tunnel token: " token < /dev/tty || true
+    printf '\n'
   fi
   [ -n "${token}" ] || die "Cloudflare token is required."
+
+  systemctl disable --now "${CF_QUICK_SERVICE_NAME}" >/dev/null 2>&1 || true
+  rm -f "${CF_QUICK_SERVICE_FILE}" || true
 
   log "Installing and enabling Cloudflare tunnel service..."
   cloudflared service install "${token}" >/dev/null
@@ -162,13 +241,35 @@ cloudflare_enable() {
   fi
 }
 
+cloudflare_enable() {
+  local mode="$1"
+  local token="$2"
+  case "${mode}" in
+    quick)
+      cloudflare_enable_quick
+      ;;
+    public|access-ready)
+      cloudflare_enable_token "${mode}" "${token}"
+      ;;
+    *)
+      die "Invalid Cloudflare mode: ${mode}"
+      ;;
+  esac
+}
+
 cloudflare_disable() {
   if have_cmd systemctl; then
     systemctl disable --now "${CF_SERVICE_NAME}" >/dev/null 2>&1 || true
-    systemctl daemon-reload >/dev/null 2>&1 || true
+    systemctl disable --now "${CF_QUICK_SERVICE_NAME}" >/dev/null 2>&1 || true
   fi
+  rm -f "${CF_QUICK_SERVICE_FILE}" || true
+
   if have_cmd cloudflared; then
     cloudflared service uninstall >/dev/null 2>&1 || true
+  fi
+
+  if have_cmd systemctl; then
+    systemctl daemon-reload >/dev/null 2>&1 || true
   fi
 
   unset CF_MODE
@@ -178,10 +279,23 @@ cloudflare_disable() {
 
 cloudflare_status() {
   local state="inactive"
+  local detail="none"
   if have_cmd systemctl && systemctl is-active --quiet "${CF_SERVICE_NAME}"; then
     state="active"
+    detail="token-service"
   fi
-  printf 'Cloudflare: %s (mode: %s)\n' "${state}" "${CF_MODE:-public}"
+  if have_cmd systemctl && systemctl is-active --quiet "${CF_QUICK_SERVICE_NAME}"; then
+    state="active"
+    detail="quick-tunnel"
+  fi
+  printf 'Cloudflare: %s (mode: %s, detail: %s)\n' "${state}" "${CF_MODE:-none}" "${detail}"
+  if [ "${detail}" = "quick-tunnel" ]; then
+    local url=""
+    url="$(cloudflare_quick_url || true)"
+    if [ -n "${url}" ]; then
+      printf '  URL: %s\n' "${url}"
+    fi
+  fi
 }
 
 ensure_tailscale_installed() {
@@ -202,9 +316,19 @@ ensure_tailscale_connected() {
   fi
 }
 
+tailscale_target_from_port() {
+  local local_port="$1"
+  if [ "${local_port}" = "${STAGEHUB_HTTPS_BACKEND_PORT}" ]; then
+    printf 'https+insecure://127.0.0.1:%s\n' "${local_port}"
+  else
+    printf 'http://127.0.0.1:%s\n' "${local_port}"
+  fi
+}
+
 tailscale_enable() {
   local mode="$1"
   local local_port="$2"
+  local target
   case "${mode}" in
     public|private) ;;
     *) die "Invalid Tailscale mode: ${mode}" ;;
@@ -215,20 +339,29 @@ tailscale_enable() {
   ensure_tailscale_installed
   ensure_tailscale_connected
 
+  target="$(tailscale_target_from_port "${local_port}")"
+
   tailscale funnel reset >/dev/null 2>&1 || true
   tailscale serve reset >/dev/null 2>&1 || true
 
   if [ "${mode}" = "public" ]; then
-    tailscale funnel --bg "${local_port}"
+    # Prefer direct funnel target. Fallback to serve+funnel-on for older CLI behavior.
+    if ! tailscale funnel --bg "${target}" >/dev/null 2>&1; then
+      tailscale serve --bg "${target}" >/dev/null
+      tailscale funnel --bg on >/dev/null 2>&1 || tailscale funnel --bg 443 on >/dev/null
+    fi
   else
-    tailscale serve --bg "${local_port}"
+    tailscale serve --bg "${target}" >/dev/null
   fi
 
   TS_MODE="${mode}"
   TS_LOCAL_PORT="${local_port}"
   save_state
 
-  log "Tailscale enabled (mode: ${mode}, local port: ${local_port})."
+  log "Tailscale enabled (mode: ${mode}, target: ${target})."
+  if [ "${mode}" = "public" ]; then
+    log "If link fails, verify Funnel is allowed in Tailscale admin and try: tailscale funnel status"
+  fi
 }
 
 tailscale_disable() {
@@ -268,13 +401,115 @@ status_all() {
   tailscale_status
 }
 
+interactive_cloudflare_enable() {
+  local choice=""
+  local token=""
+  printf '\nCloudflare enable mode:\n'
+  printf '  1) Quick one-click public link (trycloudflare)\n'
+  printf '  2) Public custom-domain tunnel (token required)\n'
+  printf '  3) Access-ready custom-domain tunnel (token required)\n'
+  choice="$(ask_input 'Select [1/2/3]' '1')"
+  case "${choice}" in
+    1)
+      cloudflare_enable "quick" ""
+      ;;
+    2)
+      token="$(ask_input 'Cloudflare tunnel token')"
+      cloudflare_enable "public" "${token}"
+      ;;
+    3)
+      token="$(ask_input 'Cloudflare tunnel token')"
+      cloudflare_enable "access-ready" "${token}"
+      ;;
+    *)
+      die "Invalid selection."
+      ;;
+  esac
+}
+
+interactive_cloudflare_menu() {
+  local choice=""
+  printf '\nCloudflare menu:\n'
+  printf '  1) Enable\n'
+  printf '  2) Disable\n'
+  printf '  3) Status\n'
+  printf '  4) Back\n'
+  choice="$(ask_input 'Select [1/2/3/4]' '1')"
+  case "${choice}" in
+    1) interactive_cloudflare_enable ;;
+    2) cloudflare_disable ;;
+    3) cloudflare_status ;;
+    4) return ;;
+    *) die "Invalid selection." ;;
+  esac
+}
+
+interactive_tailscale_enable() {
+  local choice=""
+  local mode="public"
+  local local_port="${STAGEHUB_HTTPS_BACKEND_PORT}"
+
+  printf '\nTailscale enable mode:\n'
+  printf '  1) Public internet link (Funnel)\n'
+  printf '  2) Private tailnet-only link (Serve)\n'
+  choice="$(ask_input 'Select [1/2]' '1')"
+  case "${choice}" in
+    1) mode="public" ;;
+    2) mode="private" ;;
+    *) die "Invalid selection." ;;
+  esac
+
+  local_port="$(ask_input 'Local backend port (recommended 8443)' "${STAGEHUB_HTTPS_BACKEND_PORT}")"
+  valid_port "${local_port}" || die "Invalid local backend port: ${local_port}"
+  tailscale_enable "${mode}" "${local_port}"
+}
+
+interactive_tailscale_menu() {
+  local choice=""
+  printf '\nTailscale menu:\n'
+  printf '  1) Enable\n'
+  printf '  2) Disable\n'
+  printf '  3) Status\n'
+  printf '  4) Back\n'
+  choice="$(ask_input 'Select [1/2/3/4]' '1')"
+  case "${choice}" in
+    1) interactive_tailscale_enable ;;
+    2) tailscale_disable ;;
+    3) tailscale_status ;;
+    4) return ;;
+    *) die "Invalid selection." ;;
+  esac
+}
+
+interactive_main_menu() {
+  local choice=""
+  while true; do
+    printf '\nStageHub Expose Menu\n'
+    printf '  1) Status\n'
+    printf '  2) Cloudflare\n'
+    printf '  3) Tailscale\n'
+    printf '  4) Exit\n'
+    choice="$(ask_input 'Select [1/2/3/4]' '1')"
+    case "${choice}" in
+      1) status_all ;;
+      2) interactive_cloudflare_menu ;;
+      3) interactive_tailscale_menu ;;
+      4) return ;;
+      *) die "Invalid selection." ;;
+    esac
+  done
+}
+
 main() {
   require_root
   load_state
 
   local provider="${1:-}"
   case "${provider}" in
-    ""|help|-h|--help)
+    "" )
+      interactive_main_menu
+      ;;
+    help|-h|--help)
       usage
       ;;
     status)
@@ -284,8 +519,11 @@ main() {
       local action="${2:-}"
       shift 2 || true
       case "${action}" in
+        "" )
+          interactive_cloudflare_menu
+          ;;
         enable)
-          local mode="public"
+          local mode="quick"
           local token=""
           while [ "$#" -gt 0 ]; do
             case "$1" in
@@ -320,10 +558,12 @@ main() {
       local action="${2:-}"
       shift 2 || true
       case "${action}" in
+        "")
+          interactive_tailscale_menu
+          ;;
         enable)
           local mode="public"
-          local local_port
-          local_port="$(stagehub_port)"
+          local local_port="${STAGEHUB_HTTPS_BACKEND_PORT}"
           while [ "$#" -gt 0 ]; do
             case "$1" in
               --mode)

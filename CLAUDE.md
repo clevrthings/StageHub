@@ -44,8 +44,6 @@ stagehub stop
 stagehub restart
 stagehub status
 stagehub update
-stagehub expose status
-stagehub expose cloudflare enable --mode public
-stagehub expose tailscale enable --mode private
+stagehub expose
 stagehub uninstall
 ```

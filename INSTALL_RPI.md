@@ -28,13 +28,14 @@ stagehub stop
 stagehub restart
 stagehub status
 stagehub update
-stagehub expose status
-stagehub expose cloudflare enable --mode public
-stagehub expose tailscale enable --mode private
+stagehub expose
 stagehub uninstall
 stagehub
 ```
 
 `stagehub` without arguments shows help.
+
+`stagehub expose` without extra args starts an interactive menu (Cloudflare/Tailscale).  
+Cloudflare quick one-click mode is available and prints a public `trycloudflare.com` URL.
 
 `stagehub uninstall` is interactive by default and can keep backups under `/var/backups/stagehub-<timestamp>/`.
