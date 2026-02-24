@@ -22,8 +22,8 @@ LEGACY_CLI_BIN="/usr/local/bin/${LEGACY_SERVICE_NAME}"
 INTERACTIVE_INPUT="/dev/tty"
 INSTALL_MODE="new"
 INSTALL_ACTION="install"
-INSTALLER_VERSION="2026-02-23-9"
-STAGEHUB_VERSION="1.1.0"
+INSTALLER_VERSION="2026-02-23-10"
+STAGEHUB_VERSION="1.2.0"
 
 
 log() {
@@ -436,6 +436,16 @@ setup_python_env() {
   "${INSTALL_DIR}/.venv/bin/pip" install -r "${INSTALL_DIR}/requirements.txt"
 }
 
+ensure_cli_scripts() {
+  local service_user="$1"
+  local expose_script="${INSTALL_DIR}/scripts/stagehub-expose.sh"
+  local uninstall_script="${INSTALL_DIR}/scripts/stagehub-uninstall.sh"
+  [ -f "${expose_script}" ] || die "Missing ${expose_script} in repository."
+  [ -f "${uninstall_script}" ] || die "Missing ${uninstall_script} in repository."
+  chmod 755 "${expose_script}" "${uninstall_script}"
+  chown "${service_user}:${service_user}" "${expose_script}" "${uninstall_script}"
+}
+
 write_systemd_service() {
   local service_user="$1"
   cat > "${SYSTEMD_UNIT}" <<EOF
@@ -468,12 +478,28 @@ set -euo pipefail
 
 SERVICE_NAME="stagehub.service"
 INSTALL_SCRIPT="/opt/stagehub/install.sh"
+EXPOSE_SCRIPT="/opt/stagehub/scripts/stagehub-expose.sh"
+UNINSTALL_SCRIPT="/opt/stagehub/scripts/stagehub-uninstall.sh"
 
 run_systemctl() {
   if [ "$(id -u)" -eq 0 ]; then
     exec systemctl "$@" "${SERVICE_NAME}"
   else
     exec sudo systemctl "$@" "${SERVICE_NAME}"
+  fi
+}
+
+run_script() {
+  local script="$1"
+  shift || true
+  if [ ! -x "${script}" ]; then
+    echo "Required script not found: ${script}" >&2
+    exit 1
+  fi
+  if [ "$(id -u)" -eq 0 ]; then
+    exec bash "${script}" "$@"
+  else
+    exec sudo bash "${script}" "$@"
   fi
 }
 
@@ -498,6 +524,14 @@ case "${cmd}" in
       exec sudo bash "${INSTALL_SCRIPT}" --update
     fi
     ;;
+  expose)
+    shift || true
+    run_script "${EXPOSE_SCRIPT}" "$@"
+    ;;
+  uninstall)
+    shift || true
+    run_script "${UNINSTALL_SCRIPT}" "$@"
+    ;;
   ""|help|-h|--help)
     cat <<'USAGE'
 Usage: stagehub <command>
@@ -508,6 +542,8 @@ Commands:
   restart    Restart StageHub service
   status     Show StageHub service status
   update     Pull latest code and restart (keeps settings)
+  expose     Manage Cloudflare/Tailscale exposure
+  uninstall  Remove StageHub from this machine
 USAGE
     ;;
   *)
@@ -556,6 +592,7 @@ run_update_action() {
   setup_python_env
   cp "${backup_config}" "${INSTALL_DIR}/config.json"
   chown "${service_user}:${service_user}" "${INSTALL_DIR}/config.json"
+  ensure_cli_scripts "${service_user}"
 
   write_systemd_service "${service_user}"
   write_cli_wrapper
@@ -613,6 +650,7 @@ main() {
   configure_main_config "${backup_config}"
 
   chown -R "${service_user}:${service_user}" "${INSTALL_DIR}"
+  ensure_cli_scripts "${service_user}"
 
   write_systemd_service "${service_user}"
   write_cli_wrapper
@@ -677,7 +715,7 @@ PY
 
   log "Installation complete."
   log "Service: ${SERVICE_NAME}.service (running + enabled)"
-  log "CLI commands: stagehub start | stagehub stop | stagehub restart | stagehub update"
+  log "CLI commands: stagehub start | stagehub stop | stagehub restart | stagehub status | stagehub update | stagehub expose | stagehub uninstall"
   log "Reachable via IP:"
   log "  ${http_url}  (auto-redirect to HTTPS)"
   log "  ${https_url}"

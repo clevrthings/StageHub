@@ -33,3 +33,19 @@ Als je de PID kwijt bent, zoek die dan zo op:
 ```sh
 lsof -nP -iTCP:8443 -sTCP:LISTEN
 ```
+
+## Pi CLI (installed system)
+
+Beheer op de Raspberry Pi via:
+
+```sh
+stagehub start
+stagehub stop
+stagehub restart
+stagehub status
+stagehub update
+stagehub expose status
+stagehub expose cloudflare enable --mode public
+stagehub expose tailscale enable --mode private
+stagehub uninstall
+```
